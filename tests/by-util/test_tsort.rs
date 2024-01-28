@@ -1,3 +1,7 @@
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 use crate::common::util::TestScenario;
 
 #[test]
@@ -59,4 +63,13 @@ fn test_multiple_arguments() {
         .arg("invalid_file")
         .fails()
         .stderr_contains("unexpected argument 'invalid_file' found");
+}
+
+#[test]
+fn test_error_on_dir() {
+    let (at, mut ucmd) = at_and_ucmd!();
+    at.mkdir("tsort_test_dir");
+    ucmd.arg("tsort_test_dir")
+        .fails()
+        .stderr_contains("tsort: tsort_test_dir: read error: Is a directory");
 }

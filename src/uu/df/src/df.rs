@@ -1,10 +1,7 @@
 // This file is part of the uutils coreutils package.
 //
-// (c) Fangxu Hu <framlog@gmail.com>
-// (c) Sylvestre Ledru <sylvestre@debian.org>
-//
-// For the full copyright and license information, please view the LICENSE file
-// that was distributed with this source code.
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 // spell-checker:ignore itotal iused iavail ipcent pcent tmpfs squashfs lofs
 mod blocks;
 mod columns;
@@ -339,7 +336,7 @@ fn filter_mount_list(vmi: Vec<MountInfo>, opt: &Options) -> Vec<MountInfo> {
 fn get_all_filesystems(opt: &Options) -> Result<Vec<Filesystem>, std::io::Error> {
     // Run a sync call before any operation if so instructed.
     if opt.sync {
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "redox")))]
         unsafe {
             #[cfg(not(target_os = "android"))]
             uucore::libc::sync();

@@ -1,3 +1,7 @@
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 // spell-checker:ignore abcdefgh
 use clap::{
     builder::{PossibleValue, TypedValueParser},
@@ -159,7 +163,7 @@ mod tests {
         let parser = ShortcutValueParser::new(["abcd"]);
         let cmd = Command::new("cmd");
 
-        let result = parser.parse_ref(&cmd, None, OsStr::from_bytes(&[0xc3 as u8, 0x28 as u8]));
+        let result = parser.parse_ref(&cmd, None, OsStr::from_bytes(&[0xc3, 0x28]));
         assert_eq!(ErrorKind::InvalidUtf8, result.unwrap_err().kind());
     }
 }

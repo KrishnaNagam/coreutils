@@ -1,7 +1,7 @@
-//  * This file is part of the uutils coreutils package.
-//  *
-//  * For the full copyright and license information, please view the LICENSE
-//  * file that was distributed with this source code.
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 
 // spell-checker:ignore (words) bogusfile emptyfile abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstu
 
@@ -297,11 +297,15 @@ fn test_head_invalid_num() {
     new_ucmd!()
         .args(&["-c", "1024R", "emptyfile.txt"])
         .fails()
-        .stderr_is("head: invalid number of bytes: '1024R'\n");
+        .stderr_is(
+            "head: invalid number of bytes: '1024R': Value too large for defined data type\n",
+        );
     new_ucmd!()
         .args(&["-n", "1024R", "emptyfile.txt"])
         .fails()
-        .stderr_is("head: invalid number of lines: '1024R'\n");
+        .stderr_is(
+            "head: invalid number of lines: '1024R': Value too large for defined data type\n",
+        );
     #[cfg(not(target_pointer_width = "128"))]
     new_ucmd!()
         .args(&["-c", "1Y", "emptyfile.txt"])
@@ -326,7 +330,7 @@ fn test_head_invalid_num() {
             new_ucmd!()
                 .args(&["-c", size])
                 .fails()
-                .stderr_is("head: out of range integral type conversion attempted: number of bytes is too large\n");
+                .stderr_is("head: out of range integral type conversion attempted: number of -bytes or -lines is too large\n");
         }
     }
     new_ucmd!()
@@ -373,4 +377,66 @@ fn test_presume_input_pipe_5_chars() {
         .pipe_in_fixture(INPUT)
         .run()
         .stdout_is_fixture("lorem_ipsum_5_chars.expected");
+}
+
+#[cfg(all(
+    not(target_os = "windows"),
+    not(target_os = "macos"),
+    not(target_os = "android"),
+    not(target_os = "freebsd")
+))]
+#[test]
+fn test_read_backwards_bytes_proc_fs_version() {
+    let ts = TestScenario::new(util_name!());
+
+    let args = ["-c", "-1", "/proc/version"];
+    let result = ts.ucmd().args(&args).succeeds();
+    assert!(!result.stdout().is_empty());
+}
+
+#[cfg(all(
+    not(target_os = "windows"),
+    not(target_os = "macos"),
+    not(target_os = "android"),
+    not(target_os = "freebsd")
+))]
+#[test]
+fn test_read_backwards_bytes_proc_fs_modules() {
+    let ts = TestScenario::new(util_name!());
+
+    let args = ["-c", "-1", "/proc/modules"];
+    let result = ts.ucmd().args(&args).succeeds();
+    assert!(!result.stdout().is_empty());
+}
+
+#[cfg(all(
+    not(target_os = "windows"),
+    not(target_os = "macos"),
+    not(target_os = "android"),
+    not(target_os = "freebsd")
+))]
+#[test]
+fn test_read_backwards_lines_proc_fs_modules() {
+    let ts = TestScenario::new(util_name!());
+
+    let args = ["--lines", "-1", "/proc/modules"];
+    let result = ts.ucmd().args(&args).succeeds();
+    assert!(!result.stdout().is_empty());
+}
+
+#[cfg(all(
+    not(target_os = "windows"),
+    not(target_os = "macos"),
+    not(target_os = "android"),
+    not(target_os = "freebsd")
+))]
+#[test]
+fn test_read_backwards_bytes_sys_kernel_profiling() {
+    let ts = TestScenario::new(util_name!());
+
+    let args = ["-c", "-1", "/sys/kernel/profiling"];
+    let result = ts.ucmd().args(&args).succeeds();
+    let stdout_str = result.stdout_str();
+    assert_eq!(stdout_str.len(), 1);
+    assert!(stdout_str == "0" || stdout_str == "1");
 }

@@ -1,7 +1,7 @@
-//  * This file is part of the uutils coreutils package.
-//  *
-//  * For the full copyright and license information, please view the LICENSE
-//  * file that was distributed with this source code.
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 
 // spell-checker:ignore tailable seekable stdlib (stdlib)
 
@@ -40,7 +40,7 @@ impl FileHandling {
     pub fn insert(&mut self, k: &Path, v: PathData, update_last: bool) {
         let k = Self::canonicalize_path(k);
         if update_last {
-            self.last = Some(k.to_owned());
+            self.last = Some(k.clone());
         }
         let _ = self.map.insert(k, v);
     }

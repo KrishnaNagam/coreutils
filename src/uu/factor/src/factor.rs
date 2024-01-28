@@ -1,10 +1,9 @@
-// * This file is part of the uutils coreutils package.
-// *
-// * (c) 2020 nicoo <nicoo@debian.org>
-// *
-// * For the full copyright and license information, please view the LICENSE file
-// * that was distributed with this source code.
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 
+#![allow(clippy::items_after_test_module)]
 use smallvec::SmallVec;
 use std::cell::RefCell;
 use std::fmt;
@@ -98,7 +97,7 @@ impl fmt::Display for Factors {
         v.sort_unstable();
 
         let include_exponents = f.alternate();
-        for (p, exp) in v.iter() {
+        for (p, exp) in v {
             if include_exponents && *exp > 1 {
                 write!(f, " {p}^{exp}")?;
             } else {
@@ -218,7 +217,7 @@ mod tests {
         // This is a strong pseudoprime (wrt. miller_rabin::BASIS)
         //  and triggered a bug in rho::factor's code path handling
         //  miller_rabbin::Result::Composite
-        let pseudoprime = 17179869183;
+        let pseudoprime = 17_179_869_183;
         for _ in 0..20 {
             // Repeat the test 20 times, as it only fails some fraction
             // of the time.
@@ -294,6 +293,7 @@ impl std::ops::BitXor<Exponent> for Factors {
     fn bitxor(self, rhs: Exponent) -> Self {
         debug_assert_ne!(rhs, 0);
         let mut r = Self::one();
+        #[allow(clippy::explicit_iter_loop)]
         for (p, e) in self.0.borrow().0.iter() {
             r.add(*p, rhs * e);
         }

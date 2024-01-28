@@ -1,11 +1,7 @@
-//  * This file is part of the uutils coreutils package.
-//  *
-//  * (c) Colin Warren <me@zv.ms>
-//  *
-//  * For the full copyright and license information, please view the LICENSE
-//  * file that was distributed with this source code.
-
-/* last synced with: unlink (GNU coreutils) 8.21 */
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 
 use std::ffi::OsString;
 use std::fs::remove_file;

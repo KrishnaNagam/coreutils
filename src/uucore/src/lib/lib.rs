@@ -1,7 +1,8 @@
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 // library ~ (core/bundler file)
-
-// Copyright (C) ~ Alex Lyon <arcterus@mail.com>
-// Copyright (C) ~ Roy Ivy III <rivy.dev@gmail.com>; MIT license
 
 // * feature-gated external crates (re-shared as public internal modules)
 #[cfg(feature = "libc")]
@@ -19,15 +20,11 @@ mod parser; // string parsing modules
 pub use uucore_procs::*;
 
 // * cross-platform modules
-pub use crate::mods::backup_control;
 pub use crate::mods::display;
 pub use crate::mods::error;
+pub use crate::mods::line_ending;
 pub use crate::mods::os;
 pub use crate::mods::panic;
-pub use crate::mods::quoting_style;
-pub use crate::mods::ranges;
-pub use crate::mods::update_control;
-pub use crate::mods::version_cmp;
 
 // * string parsing modules
 pub use crate::parser::parse_glob;
@@ -36,20 +33,30 @@ pub use crate::parser::parse_time;
 pub use crate::parser::shortcut_value_parser;
 
 // * feature-gated modules
+#[cfg(feature = "backup-control")]
+pub use crate::features::backup_control;
+#[cfg(feature = "colors")]
+pub use crate::features::colors;
 #[cfg(feature = "encoding")]
 pub use crate::features::encoding;
+#[cfg(feature = "format")]
+pub use crate::features::format;
 #[cfg(feature = "fs")]
 pub use crate::features::fs;
-#[cfg(feature = "fsext")]
-pub use crate::features::fsext;
 #[cfg(feature = "lines")]
 pub use crate::features::lines;
-#[cfg(feature = "memo")]
-pub use crate::features::memo;
+#[cfg(feature = "quoting-style")]
+pub use crate::features::quoting_style;
+#[cfg(feature = "ranges")]
+pub use crate::features::ranges;
 #[cfg(feature = "ringbuffer")]
 pub use crate::features::ringbuffer;
 #[cfg(feature = "sum")]
 pub use crate::features::sum;
+#[cfg(feature = "update-control")]
+pub use crate::features::update_control;
+#[cfg(feature = "version-cmp")]
+pub use crate::features::version_cmp;
 
 // * (platform-specific) feature-gated modules
 // ** non-windows (i.e. Unix + Fuchsia)
@@ -70,6 +77,7 @@ pub use crate::features::signals;
     unix,
     not(target_os = "android"),
     not(target_os = "fuchsia"),
+    not(target_os = "openbsd"),
     not(target_os = "redox"),
     not(target_env = "musl"),
     feature = "utmpx"
@@ -78,6 +86,12 @@ pub use crate::features::utmpx;
 // ** windows-only
 #[cfg(all(windows, feature = "wide"))]
 pub use crate::features::wide;
+
+#[cfg(feature = "fsext")]
+pub use crate::features::fsext;
+
+#[cfg(all(unix, not(target_os = "macos"), feature = "fsxattr"))]
+pub use crate::features::fsxattr;
 
 //## core functions
 
@@ -95,9 +109,15 @@ macro_rules! bin {
     ($util:ident) => {
         pub fn main() {
             use std::io::Write;
-            uucore::panic::mute_sigpipe_panic(); // suppress extraneous error output for SIGPIPE failures/panics
-            let code = $util::uumain(uucore::args_os()); // execute utility code
-            std::io::stdout().flush().expect("could not flush stdout"); // (defensively) flush stdout for utility prior to exit; see <https://github.com/rust-lang/rust/issues/23818>
+            // suppress extraneous error output for SIGPIPE failures/panics
+            uucore::panic::mute_sigpipe_panic();
+            // execute utility code
+            let code = $util::uumain(uucore::args_os());
+            // (defensively) flush stdout for utility prior to exit; see <https://github.com/rust-lang/rust/issues/23818>
+            if let Err(e) = std::io::stdout().flush() {
+                eprintln!("Error flushing stdout: {}", e);
+            }
+
             std::process::exit(code);
         }
     };
@@ -128,8 +148,8 @@ pub fn set_utility_is_second_arg() {
 static ARGV: Lazy<Vec<OsString>> = Lazy::new(|| wild::args_os().collect());
 
 static UTIL_NAME: Lazy<String> = Lazy::new(|| {
-    let base_index = if get_utility_is_second_arg() { 1 } else { 0 };
-    let is_man = if ARGV[base_index].eq("manpage") { 1 } else { 0 };
+    let base_index = usize::from(get_utility_is_second_arg());
+    let is_man = usize::from(ARGV[base_index].eq("manpage"));
     let argv_index = base_index + is_man;
 
     ARGV[argv_index].to_string_lossy().into_owned()

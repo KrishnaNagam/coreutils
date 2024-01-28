@@ -1,21 +1,18 @@
-//  * This file is part of the uutils coreutils package.
-//  *
-//  * (c) 2014 Vsevolod Velichko <torkvemada@sorokdva.net>
-//  *
-//  * For the full copyright and license information, please view the LICENSE
-//  * file that was distributed with this source code.
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 
 // spell-checker:ignore (ToDO) execvp SIGHUP cproc vprocmgr cstrs homeout
 
 use clap::{crate_version, Arg, ArgAction, Command};
-use is_terminal::IsTerminal;
 use libc::{c_char, dup2, execvp, signal};
 use libc::{SIGHUP, SIG_IGN};
 use std::env;
 use std::ffi::CString;
 use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
-use std::io::Error;
+use std::io::{Error, IsTerminal};
 use std::os::unix::prelude::*;
 use std::path::{Path, PathBuf};
 use uucore::display::Quotable;
@@ -77,8 +74,6 @@ impl Display for NohupError {
 
 #[uucore::main]
 pub fn uumain(args: impl uucore::Args) -> UResult<()> {
-    let args = args.collect_lossy();
-
     let matches = uu_app().try_get_matches_from(args).with_exit_code(125)?;
 
     replace_fds()?;
@@ -203,7 +198,12 @@ extern "C" {
     fn _vprocmgr_detach_from_console(flags: u32) -> *const libc::c_int;
 }
 
-#[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd"))]
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "openbsd"
+))]
 unsafe fn _vprocmgr_detach_from_console(_: u32) -> *const libc::c_int {
     std::ptr::null()
 }

@@ -1,9 +1,7 @@
-//  * This file is part of the uutils coreutils package.
-//  *
-//  * (c) Yury Krivopalov <ykrivopalov@yandex.ru>
-//  *
-//  * For the full copyright and license information, please view the LICENSE
-//  * file that was distributed with this source code.
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 
 use crate::errors::*;
 use crate::format::format_and_print;
@@ -15,7 +13,7 @@ use std::str::FromStr;
 
 use units::{IEC_BASES, SI_BASES};
 use uucore::display::Quotable;
-use uucore::error::{UError, UResult};
+use uucore::error::UResult;
 use uucore::ranges::Range;
 use uucore::{format_usage, help_about, help_section, help_usage, show, show_error};
 
@@ -213,9 +211,7 @@ fn parse_options(args: &ArgMatches) -> Result<NumfmtOptions> {
         _ => unreachable!("Should be restricted by clap"),
     };
 
-    let suffix = args
-        .get_one::<String>(options::SUFFIX)
-        .map(|s| s.to_owned());
+    let suffix = args.get_one::<String>(options::SUFFIX).cloned();
 
     let invalid =
         InvalidModes::from_str(args.get_one::<String>(options::INVALID).unwrap()).unwrap();

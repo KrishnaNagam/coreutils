@@ -1,7 +1,7 @@
-//  * This file is part of the uutils coreutils package.
-//  *
-//  * For the full copyright and license information, please view the LICENSE
-//  * file that was distributed with this source code.
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 
 // spell-checker:ignore (words) ints
 
@@ -1180,4 +1180,9 @@ fn test_tmp_files_deleted_on_sigint() {
 #[test]
 fn test_same_sort_mode_twice() {
     new_ucmd!().args(&["-k", "2n,2n", "empty.txt"]).succeeds();
+}
+
+#[test]
+fn test_args_override() {
+    new_ucmd!().args(&["-f", "-f"]).pipe_in("foo").succeeds();
 }

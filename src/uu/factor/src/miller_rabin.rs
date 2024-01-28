@@ -1,9 +1,7 @@
-// * This file is part of the uutils coreutils package.
-// *
-// * (c) 2020 nicoo <nicoo@debian.org>
-// *
-// * For the full copyright and license information, please view the LICENSE file
-// * that was distributed with this source code.
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 
 // spell-checker:ignore (URL) appspot
 
@@ -16,19 +14,17 @@ pub(crate) trait Basis {
 impl Basis for Montgomery<u64> {
     // Small set of bases for the Miller-Rabin prime test, valid for all 64b integers;
     //  discovered by Jim Sinclair on 2011-04-20, see miller-rabin.appspot.com
-    #[allow(clippy::unreadable_literal)]
-    const BASIS: &'static [u64] = &[2, 325, 9375, 28178, 450775, 9780504, 1795265022];
+    const BASIS: &'static [u64] = &[2, 325, 9375, 28178, 450_775, 9_780_504, 1_795_265_022];
 }
 
 impl Basis for Montgomery<u32> {
     // spell-checker:ignore (names) Steve Worley
     // Small set of bases for the Miller-Rabin prime test, valid for all 32b integers;
     //  discovered by Steve Worley on 2013-05-27, see miller-rabin.appspot.com
-    #[allow(clippy::unreadable_literal)]
     const BASIS: &'static [u64] = &[
-        4230279247111683200,
-        14694767155120705706,
-        16641139526367750375,
+        4_230_279_247_111_683_200,
+        14_694_767_155_120_705_706,
+        16_641_139_526_367_750_375,
     ];
 }
 
@@ -63,7 +59,7 @@ pub(crate) fn test<A: Arithmetic + Basis>(m: A) -> Result {
     let one = m.one();
     let minus_one = m.minus_one();
 
-    'witness: for _a in A::BASIS.iter() {
+    'witness: for _a in A::BASIS {
         let _a = _a % n;
         if _a == 0 {
             continue;
@@ -114,7 +110,7 @@ mod tests {
     use crate::numeric::{traits::DoubleInt, Arithmetic, Montgomery};
     use quickcheck::quickcheck;
     use std::iter;
-    const LARGEST_U64_PRIME: u64 = 0xFFFFFFFFFFFFFFC5;
+    const LARGEST_U64_PRIME: u64 = 0xFFFF_FFFF_FFFF_FFC5;
 
     fn primes() -> impl Iterator<Item = u64> {
         iter::once(2).chain(odd_primes())

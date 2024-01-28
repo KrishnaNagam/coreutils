@@ -1,3 +1,7 @@
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 // spell-checker:ignore overridable
 use crate::common::util::TestScenario;
 
@@ -154,6 +158,18 @@ fn test_quoting() {
         .stdout_is("LS_COLORS='ex='\\''echo Hello;\\:'\\'':';\nexport LS_COLORS\n")
         .no_stderr();
 }
+
+/*
+#[test]
+fn test_print_ls_colors() {
+    new_ucmd!()
+        .pipe_in("OWT 40;33\n")
+        .args(&["--print-ls-colors"])
+        .succeeds()
+        .stdout_is("\x1B[40;33mtw\t40;33\x1B[0m\n")
+        .no_stderr();
+}
+*/
 
 #[test]
 fn test_extra_operand() {

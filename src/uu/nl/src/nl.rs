@@ -1,17 +1,14 @@
-//  * This file is part of the uutils coreutils package.
-//  *
-//  * (c) Tobias Bohumir Schottdorf <tobias.schottdorf@gmail.com>
-//  *
-//  * For the full copyright and license information, please view the LICENSE
-//  * file that was distributed with this source code.
-//  *
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 
 use clap::{crate_version, Arg, ArgAction, Command};
 use std::fs::File;
 use std::io::{stdin, BufRead, BufReader, Read};
 use std::path::Path;
-use uucore::error::{FromIo, UResult, USimpleError};
-use uucore::{format_usage, help_about, help_section, help_usage};
+use uucore::error::{set_exit_code, FromIo, UResult, USimpleError};
+use uucore::{format_usage, help_about, help_section, help_usage, show_error};
 
 mod helper;
 
@@ -26,7 +23,7 @@ pub struct Settings {
     body_numbering: NumberingStyle,
     footer_numbering: NumberingStyle,
     // The variable corresponding to -d
-    section_delimiter: [char; 2],
+    section_delimiter: String,
     // The variables corresponding to the options -v, -i, -l, -w.
     starting_line_number: i64,
     line_increment: i64,
@@ -46,7 +43,7 @@ impl Default for Settings {
             header_numbering: NumberingStyle::None,
             body_numbering: NumberingStyle::NonEmpty,
             footer_numbering: NumberingStyle::None,
-            section_delimiter: ['\\', ':'],
+            section_delimiter: String::from("\\:"),
             starting_line_number: 1,
             line_increment: 1,
             join_blank_lines: 1,
@@ -54,6 +51,20 @@ impl Default for Settings {
             number_format: NumberFormat::Right,
             renumber: true,
             number_separator: String::from("\t"),
+        }
+    }
+}
+
+struct Stats {
+    line_number: Option<i64>,
+    consecutive_empty_lines: u64,
+}
+
+impl Stats {
+    fn new(starting_line_number: i64) -> Self {
+        Self {
+            line_number: Some(starting_line_number),
+            consecutive_empty_lines: 0,
         }
     }
 }
@@ -69,6 +80,23 @@ enum NumberingStyle {
     NonEmpty,
     None,
     Regex(Box<regex::Regex>),
+}
+
+impl TryFrom<&str> for NumberingStyle {
+    type Error = String;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s {
+            "a" => Ok(Self::All),
+            "t" => Ok(Self::NonEmpty),
+            "n" => Ok(Self::None),
+            _ if s.starts_with('p') => match regex::Regex::new(&s[1..]) {
+                Ok(re) => Ok(Self::Regex(Box::new(re))),
+                Err(_) => Err(String::from("invalid regular expression")),
+            },
+            _ => Err(format!("invalid numbering style: '{s}'")),
+        }
+    }
 }
 
 // NumberFormat specifies how line numbers are output within their allocated
@@ -106,6 +134,32 @@ impl NumberFormat {
     }
 }
 
+enum SectionDelimiter {
+    Header,
+    Body,
+    Footer,
+}
+
+impl SectionDelimiter {
+    // A valid section delimiter contains the pattern one to three times,
+    // and nothing else.
+    fn parse(s: &str, pattern: &str) -> Option<Self> {
+        if s.is_empty() || pattern.is_empty() {
+            return None;
+        }
+
+        let pattern_count = s.matches(pattern).count();
+        let is_length_ok = pattern_count * pattern.len() == s.len();
+
+        match (pattern_count, is_length_ok) {
+            (3, true) => Some(Self::Header),
+            (2, true) => Some(Self::Body),
+            (1, true) => Some(Self::Footer),
+            _ => None,
+        }
+    }
+}
+
 pub mod options {
     pub const HELP: &str = "help";
     pub const FILE: &str = "file";
@@ -124,8 +178,6 @@ pub mod options {
 
 #[uucore::main]
 pub fn uumain(args: impl uucore::Args) -> UResult<()> {
-    let args = args.collect_lossy();
-
     let matches = uu_app().try_get_matches_from(args)?;
 
     let mut settings = Settings::default();
@@ -140,29 +192,31 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
         ));
     }
 
-    let mut read_stdin = false;
     let files: Vec<String> = match matches.get_many::<String>(options::FILE) {
-        Some(v) => v.clone().map(|v| v.to_owned()).collect(),
+        Some(v) => v.cloned().collect(),
         None => vec!["-".to_owned()],
     };
 
+    let mut stats = Stats::new(settings.starting_line_number);
+
     for file in &files {
         if file == "-" {
-            // If both file names and '-' are specified, we choose to treat first all
-            // regular files, and then read from stdin last.
-            read_stdin = true;
-            continue;
+            let mut buffer = BufReader::new(stdin());
+            nl(&mut buffer, &mut stats, &settings)?;
+        } else {
+            let path = Path::new(file);
+
+            if path.is_dir() {
+                show_error!("{}: Is a directory", path.display());
+                set_exit_code(1);
+            } else {
+                let reader = File::open(path).map_err_context(|| file.to_string())?;
+                let mut buffer = BufReader::new(reader);
+                nl(&mut buffer, &mut stats, &settings)?;
+            }
         }
-        let path = Path::new(file);
-        let reader = File::open(path).map_err_context(|| file.to_string())?;
-        let mut buffer = BufReader::new(reader);
-        nl(&mut buffer, &settings)?;
     }
 
-    if read_stdin {
-        let mut buffer = BufReader::new(stdin());
-        nl(&mut buffer, &settings)?;
-    }
     Ok(())
 }
 
@@ -271,33 +325,31 @@ pub fn uu_app() -> Command {
 }
 
 // nl implements the main functionality for an individual buffer.
-fn nl<T: Read>(reader: &mut BufReader<T>, settings: &Settings) -> UResult<()> {
+fn nl<T: Read>(reader: &mut BufReader<T>, stats: &mut Stats, settings: &Settings) -> UResult<()> {
     let mut current_numbering_style = &settings.body_numbering;
-    let mut line_no = settings.starting_line_number;
-    let mut consecutive_empty_lines = 0;
 
     for line in reader.lines() {
         let line = line.map_err_context(|| "could not read line".to_string())?;
 
         if line.is_empty() {
-            consecutive_empty_lines += 1;
+            stats.consecutive_empty_lines += 1;
         } else {
-            consecutive_empty_lines = 0;
+            stats.consecutive_empty_lines = 0;
         };
 
-        // FIXME section delimiters are hardcoded and settings.section_delimiter is ignored
-        // because --section-delimiter is not correctly implemented yet
-        let _ = settings.section_delimiter; // XXX suppress "field never read" warning
-        let new_numbering_style = match line.as_str() {
-            "\\:\\:\\:" => Some(&settings.header_numbering),
-            "\\:\\:" => Some(&settings.body_numbering),
-            "\\:" => Some(&settings.footer_numbering),
-            _ => None,
+        let new_numbering_style = match SectionDelimiter::parse(&line, &settings.section_delimiter)
+        {
+            Some(SectionDelimiter::Header) => Some(&settings.header_numbering),
+            Some(SectionDelimiter::Body) => Some(&settings.body_numbering),
+            Some(SectionDelimiter::Footer) => Some(&settings.footer_numbering),
+            None => None,
         };
 
         if let Some(new_style) = new_numbering_style {
             current_numbering_style = new_style;
-            line_no = settings.starting_line_number;
+            if settings.renumber {
+                stats.line_number = Some(settings.starting_line_number);
+            }
             println!();
         } else {
             let is_line_numbered = match current_numbering_style {
@@ -305,7 +357,7 @@ fn nl<T: Read>(reader: &mut BufReader<T>, settings: &Settings) -> UResult<()> {
                 // for numbering, and only number the last one
                 NumberingStyle::All
                     if line.is_empty()
-                        && consecutive_empty_lines % settings.join_blank_lines != 0 =>
+                        && stats.consecutive_empty_lines % settings.join_blank_lines != 0 =>
                 {
                     false
                 }
@@ -316,16 +368,22 @@ fn nl<T: Read>(reader: &mut BufReader<T>, settings: &Settings) -> UResult<()> {
             };
 
             if is_line_numbered {
+                let Some(line_number) = stats.line_number else {
+                    return Err(USimpleError::new(1, "line number overflow"));
+                };
                 println!(
                     "{}{}{}",
                     settings
                         .number_format
-                        .format(line_no, settings.number_width),
+                        .format(line_number, settings.number_width),
                     settings.number_separator,
                     line
                 );
                 // update line number for the potential next line
-                line_no += settings.line_increment;
+                match line_number.checked_add(settings.line_increment) {
+                    Some(new_line_number) => stats.line_number = Some(new_line_number),
+                    None => stats.line_number = None, // overflow
+                }
             } else {
                 let spaces = " ".repeat(settings.number_width + 1);
                 println!("{spaces}{line}");
@@ -340,6 +398,7 @@ mod test {
     use super::*;
 
     #[test]
+    #[allow(clippy::cognitive_complexity)]
     fn test_format() {
         assert_eq!(NumberFormat::Left.format(12, 1), "12");
         assert_eq!(NumberFormat::Left.format(-12, 1), "-12");

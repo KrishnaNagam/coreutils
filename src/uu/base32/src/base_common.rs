@@ -1,16 +1,12 @@
 // This file is part of the uutils coreutils package.
 //
-// (c) Jordy Dickinson <jordy.dickinson@gmail.com>
-// (c) Jian Zeng <anonymousknight96@gmail.com>
-// (c) Alex Lyon <arcterus@mail.com>
-//
-// For the full copyright and license information, please view the LICENSE file
-// that was distributed with this source code.
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 
 use std::io::{stdout, Read, Write};
 
 use uucore::display::Quotable;
-use uucore::encoding::{wrap_print, Data, Format};
+use uucore::encoding::{wrap_print, Data, EncodeError, Format};
 use uucore::error::{FromIo, UResult, USimpleError, UUsageError};
 use uucore::format_usage;
 
@@ -58,7 +54,7 @@ impl Config {
                             format!("{}: No such file or directory", name.maybe_quote()),
                         ));
                     }
-                    Some(name.to_owned())
+                    Some(name.clone())
                 }
             }
             None => None,
@@ -91,8 +87,7 @@ pub fn parse_base_cmd_args(
     usage: &str,
 ) -> UResult<Config> {
     let command = base_app(about, usage);
-    let arg_list = args.collect_lossy();
-    Config::from(&command.try_get_matches_from(arg_list)?)
+    Config::from(&command.try_get_matches_from(args)?)
 }
 
 pub fn base_app(about: &'static str, usage: &str) -> Command {
@@ -179,6 +174,7 @@ pub fn handle_input<R: Read>(
                 wrap_print(&data, &s);
                 Ok(())
             }
+            Err(EncodeError::InvalidInput) => Err(USimpleError::new(1, "error: invalid input")),
             Err(_) => Err(USimpleError::new(
                 1,
                 "error: invalid input (length must be multiple of 4 characters)",

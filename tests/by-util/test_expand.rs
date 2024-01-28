@@ -1,3 +1,7 @@
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 use crate::common::util::TestScenario;
 use uucore::display::Quotable;
 // spell-checker:ignore (ToDO) taaaa tbbbb tcccc
@@ -387,4 +391,38 @@ fn test_comma_with_plus_4() {
         .succeeds()
         //          01234567890
         .stdout_is("a  b    c");
+}
+
+#[test]
+fn test_args_override() {
+    new_ucmd!()
+        .args(&["-i", "-i", "with-trailing-tab.txt"])
+        .run()
+        .stdout_is(
+            "// !note: file contains significant whitespace
+// * indentation uses <TAB> characters
+int main() {
+        // * next line has both a leading & trailing tab
+        // with tabs=>\t
+        return 0;
+}
+",
+        );
+}
+
+#[test]
+fn test_expand_directory() {
+    new_ucmd!()
+        .args(&["."])
+        .fails()
+        .stderr_contains("expand: .: Is a directory");
+}
+
+#[test]
+fn test_nonexisting_file() {
+    new_ucmd!()
+        .args(&["nonexistent", "with-spaces.txt"])
+        .fails()
+        .stderr_contains("expand: nonexistent: No such file or directory")
+        .stdout_contains_line("// !note: file contains significant whitespace");
 }

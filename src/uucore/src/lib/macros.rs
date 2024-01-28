@@ -1,3 +1,8 @@
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
+
 // TODO fix broken links
 #![allow(rustdoc::broken_intra_doc_links)]
 //! Macros for the uucore utilities.
@@ -35,8 +40,6 @@
 use std::sync::atomic::AtomicBool;
 
 // This file is part of the uutils coreutils package.
-//
-// (c) Alex Lyon <arcterus@mail.com>
 //
 // For the full copyright and license information, please view the LICENSE
 // file that was distributed with this source code.
@@ -88,6 +91,7 @@ pub static UTILITY_IS_SECOND_ARG: AtomicBool = AtomicBool::new(false);
 #[macro_export]
 macro_rules! show(
     ($err:expr) => ({
+        use $crate::error::UError;
         let e = $err;
         $crate::error::set_exit_code(e.code());
         eprintln!("{}: {}", $crate::util_name(), e);
@@ -128,7 +132,7 @@ macro_rules! show(
 macro_rules! show_if_err(
     ($res:expr) => ({
         if let Err(e) = $res {
-            show!(e);
+            $crate::show!(e);
         }
     })
 );

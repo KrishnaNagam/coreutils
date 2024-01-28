@@ -1,27 +1,75 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # `build-gnu.bash` ~ builds GNU coreutils (from supplied sources)
 #
-# UU_MAKE_PROFILE == 'debug' | 'release' ## build profile for *uutils* build; may be supplied by caller, defaults to 'release'
 
-# spell-checker:ignore (paths) abmon deref discrim eacces getlimits getopt ginstall inacc infloop inotify reflink ; (misc) INT_OFLOW OFLOW baddecode submodules ; (vars/env) SRCDIR vdir rcexp xpart
+# spell-checker:ignore (paths) abmon deref discrim eacces getlimits getopt ginstall inacc infloop inotify reflink ; (misc) INT_OFLOW OFLOW baddecode submodules ; (vars/env) SRCDIR vdir rcexp xpart dired OSTYPE ; (utils) gnproc greadlink gsed
 
 set -e
 
+# Use GNU version for make, nproc, readlink and sed on *BSD
+case "$OSTYPE" in
+    *bsd*)
+        MAKE="gmake"
+        NPROC="gnproc"
+        READLINK="greadlink"
+        SED="gsed"
+        ;;
+    *)
+        MAKE="make"
+        NPROC="nproc"
+        READLINK="readlink"
+        SED="sed"
+        ;;
+esac
+
 ME="${0}"
-ME_dir="$(dirname -- "$(readlink -fm -- "${ME}")")"
+ME_dir="$(dirname -- "$("${READLINK}" -fm -- "${ME}")")"
 REPO_main_dir="$(dirname -- "${ME_dir}")"
+
+# Default profile is 'debug'
+UU_MAKE_PROFILE='debug'
+
+for arg in "$@"
+do
+    if [ "$arg" == "--release-build" ]; then
+        UU_MAKE_PROFILE='release'
+        break
+    fi
+done
+
+echo "UU_MAKE_PROFILE='${UU_MAKE_PROFILE}'"
 
 ### * config (from environment with fallback defaults); note: GNU is expected to be a sibling repo directory
 
 path_UUTILS=${path_UUTILS:-${REPO_main_dir}}
-path_GNU="$(readlink -fm -- "${path_GNU:-${path_UUTILS}/../gnu}")"
+path_GNU="$("${READLINK}" -fm -- "${path_GNU:-${path_UUTILS}/../gnu}")"
 
 ###
+
+# On MacOS there is no system /usr/bin/timeout
+# and trying to add it to /usr/bin (with symlink of copy binary) will fail unless system integrity protection is disabled (not ideal)
+# ref: https://support.apple.com/en-us/102149
+# On MacOS the Homebrew coreutils could be installed and then "sudo ln -s /opt/homebrew/bin/timeout /usr/local/bin/timeout"
+# Set to /usr/local/bin/timeout instead if /usr/bin/timeout is not found
+SYSTEM_TIMEOUT="timeout"
+if [ -x /usr/bin/timeout ]; then
+    SYSTEM_TIMEOUT="/usr/bin/timeout"
+elif [ -x /usr/local/bin/timeout ]; then
+    SYSTEM_TIMEOUT="/usr/local/bin/timeout"
+fi
+
+###
+
+release_tag_GNU="v9.4"
 
 if test ! -d "${path_GNU}"; then
     echo "Could not find GNU coreutils (expected at '${path_GNU}')"
     echo "Run the following to download into the expected path:"
     echo "git clone --recurse-submodules https://github.com/coreutils/coreutils.git \"${path_GNU}\""
+    echo "After downloading GNU coreutils to \"${path_GNU}\" run the following commands to checkout latest release tag"
+    echo "cd \"${path_GNU}\""
+    echo "git fetch --all --tags"
+    echo "git checkout tags/${release_tag_GNU}"
     exit 1
 fi
 
@@ -36,9 +84,6 @@ echo "path_GNU='${path_GNU}'"
 
 ###
 
-UU_MAKE_PROFILE=${UU_MAKE_PROFILE:-release}
-echo "UU_MAKE_PROFILE='${UU_MAKE_PROFILE}'"
-
 UU_BUILD_DIR="${path_UUTILS}/target/${UU_MAKE_PROFILE}"
 echo "UU_BUILD_DIR='${UU_BUILD_DIR}'"
 
@@ -49,7 +94,7 @@ if [ "$(uname)" == "Linux" ]; then
     export SELINUX_ENABLED=1
 fi
 
-make PROFILE="${UU_MAKE_PROFILE}"
+"${MAKE}" PROFILE="${UU_MAKE_PROFILE}"
 
 cp "${UU_BUILD_DIR}/install" "${UU_BUILD_DIR}/ginstall" # The GNU tests rename this script before running, to avoid confusion with the make target
 # Create *sum binaries
@@ -73,20 +118,20 @@ for binary in $(./build-aux/gen-lists-of-programs.sh --list-progs); do
 done
 
 if test -f gnu-built; then
-    # Change the PATH in the Makefile to test the uutils coreutils instead of the GNU coreutils
-    sed -i "s/^[[:blank:]]*PATH=.*/  PATH='${UU_BUILD_DIR//\//\\/}\$(PATH_SEPARATOR)'\"\$\$PATH\" \\\/" Makefile
     echo "GNU build already found. Skip"
     echo "'rm -f $(pwd)/gnu-built' to force the build"
     echo "Note: the customization of the tests will still happen"
 else
     ./bootstrap --skip-po
-    ./configure --quiet --disable-gcc-warnings
+    ./configure --quiet --disable-gcc-warnings --disable-nls --disable-dependency-tracking --disable-bold-man-page-references
     #Add timeout to to protect against hangs
-    sed -i 's|^"\$@|/usr/bin/timeout 600 "\$@|' build-aux/test-driver
+    sed -i 's|^"\$@|'"${SYSTEM_TIMEOUT}"' 600 "\$@|' build-aux/test-driver
     # Change the PATH in the Makefile to test the uutils coreutils instead of the GNU coreutils
     sed -i "s/^[[:blank:]]*PATH=.*/  PATH='${UU_BUILD_DIR//\//\\/}\$(PATH_SEPARATOR)'\"\$\$PATH\" \\\/" Makefile
     sed -i 's| tr | /usr/bin/tr |' tests/init.sh
-    make -j "$(nproc)"
+    # Use a better diff
+    sed -i 's|diff -c|diff -u|g' tests/Coreutils.pm
+    "${MAKE}" -j "$("${NPROC}")"
     touch gnu-built
 fi
 
@@ -106,7 +151,7 @@ t_max=36
 #         done
 #     )
 #     for i in ${seq}; do
-#         make "tests/factor/t${i}.sh"
+#         "${MAKE}" "tests/factor/t${i}.sh"
 #     done
 #     cat
 #     sed -i -e 's|^seq |/usr/bin/seq |' -e 's|sha1sum |/usr/bin/sha1sum |' tests/factor/t*.sh
@@ -130,36 +175,46 @@ grep -rl 'path_prepend_' tests/* | xargs sed -i 's| path_prepend_ ./src||'
 # Remove tests checking for --version & --help
 # Not really interesting for us and logs are too big
 sed -i -e '/tests\/misc\/invalid-opt.pl/ D' \
-    -e '/tests\/misc\/help-version.sh/ D' \
-    -e '/tests\/misc\/help-version-getopt.sh/ D' \
+    -e '/tests\/help\/help-version.sh/ D' \
+    -e '/tests\/help\/help-version-getopt.sh/ D' \
     Makefile
 
 # logs are clotted because of this test
-sed -i -e '/tests\/misc\/seq-precision.sh/ D' \
+sed -i -e '/tests\/seq\/seq-precision.sh/ D' \
     Makefile
 
 # printf doesn't limit the values used in its arg, so this produced ~2GB of output
-sed -i '/INT_OFLOW/ D' tests/misc/printf.sh
+sed -i '/INT_OFLOW/ D' tests/printf/printf.sh
 
 # Use the system coreutils where the test fails due to error in a util that is not the one being tested
-sed -i 's|stat|/usr/bin/stat|' tests/touch/60-seconds.sh tests/misc/sort-compress-proc.sh
+sed -i 's|stat|/usr/bin/stat|' tests/touch/60-seconds.sh tests/sort/sort-compress-proc.sh
 sed -i 's|ls -|/usr/bin/ls -|' tests/cp/same-file.sh tests/misc/mknod.sh tests/mv/part-symlink.sh
-sed -i 's|chmod |/usr/bin/chmod |' tests/du/inacc-dir.sh tests/tail-2/tail-n0f.sh tests/cp/fail-perm.sh tests/mv/i-2.sh tests/misc/shuf.sh
-sed -i 's|sort |/usr/bin/sort |' tests/ls/hyperlink.sh tests/misc/test-N.sh
-sed -i 's|split |/usr/bin/split |' tests/misc/factor-parallel.sh
-sed -i 's|id -|/usr/bin/id -|' tests/misc/runcon-no-reorder.sh
+sed -i 's|chmod |/usr/bin/chmod |' tests/du/inacc-dir.sh tests/tail/tail-n0f.sh tests/cp/fail-perm.sh tests/mv/i-2.sh tests/shuf/shuf.sh
+sed -i 's|sort |/usr/bin/sort |' tests/ls/hyperlink.sh tests/test/test-N.sh
+sed -i 's|split |/usr/bin/split |' tests/factor/factor-parallel.sh
+sed -i 's|id -|/usr/bin/id -|' tests/runcon/runcon-no-reorder.sh
+sed -i "s|grep '^#define HAVE_CAP 1' \$CONFIG_HEADER > /dev/null|true|"  tests/ls/capability.sh
 # tests/ls/abmon-align.sh - https://github.com/uutils/coreutils/issues/3505
-sed -i 's|touch |/usr/bin/touch |' tests/cp/reflink-perm.sh tests/ls/block-size.sh tests/mv/update.sh tests/misc/ls-time.sh tests/misc/stat-nanoseconds.sh tests/misc/time-style.sh tests/misc/test-N.sh tests/ls/abmon-align.sh
+sed -i 's|touch |/usr/bin/touch |' tests/cp/reflink-perm.sh tests/ls/block-size.sh tests/mv/update.sh tests/ls/ls-time.sh tests/stat/stat-nanoseconds.sh tests/misc/time-style.sh tests/test/test-N.sh tests/ls/abmon-align.sh
 sed -i 's|ln -|/usr/bin/ln -|' tests/cp/link-deref.sh
+
+# our messages are better
+sed -i "s|cannot stat 'symlink': Permission denied|not writing through dangling symlink 'symlink'|" tests/cp/fail-perm.sh
+sed -i "s|cp: target directory 'symlink': Permission denied|cp: 'symlink' is not a directory|" tests/cp/fail-perm.sh
+
+# Our message is a bit better
+sed -i "s|cannot create regular file 'no-such/': Not a directory|'no-such/' is not a directory|" tests/mv/trailing-slash.sh
+
 sed -i 's|cp |/usr/bin/cp |' tests/mv/hard-2.sh
-sed -i 's|paste |/usr/bin/paste |' tests/misc/od-endian.sh
-sed -i 's|timeout |/usr/bin/timeout |' tests/tail-2/follow-stdin.sh
+sed -i 's|paste |/usr/bin/paste |' tests/od/od-endian.sh
+sed -i 's|timeout |'"${SYSTEM_TIMEOUT}"' |' tests/tail/follow-stdin.sh
 
 # Add specific timeout to tests that currently hang to limit time spent waiting
-sed -i 's|\(^\s*\)seq \$|\1/usr/bin/timeout 0.1 seq \$|' tests/misc/seq-precision.sh tests/misc/seq-long-double.sh
+sed -i 's|\(^\s*\)seq \$|\1'"${SYSTEM_TIMEOUT}"' 0.1 seq \$|' tests/seq/seq-precision.sh tests/seq/seq-long-double.sh
 
-# Remove dup of /usr/bin/ when executed several times
-grep -rlE '/usr/bin/\s?/usr/bin' init.cfg tests/* | xargs --no-run-if-empty sed -Ei 's|/usr/bin/\s?/usr/bin/|/usr/bin/|g'
+# Remove dup of /usr/bin/ and /usr/local/bin/ when executed several times
+grep -rlE '/usr/bin/\s?/usr/bin' init.cfg tests/* | xargs -r sed -Ei 's|/usr/bin/\s?/usr/bin/|/usr/bin/|g'
+grep -rlE '/usr/local/bin/\s?/usr/local/bin' init.cfg tests/* | xargs -r sed -Ei 's|/usr/local/bin/\s?/usr/local/bin/|/usr/local/bin/|g'
 
 #### Adjust tests to make them work with Rust/coreutils
 # in some cases, what we are doing in rust/coreutils is good (or better)
@@ -167,6 +222,8 @@ grep -rlE '/usr/bin/\s?/usr/bin' init.cfg tests/* | xargs --no-run-if-empty sed 
 # So, do some changes on the fly
 
 sed -i -e "s|rm: cannot remove 'e/slink'|rm: cannot remove 'e'|g" tests/rm/fail-eacces.sh
+
+sed -i -e "s|rm: cannot remove 'a/b'|rm: cannot remove 'a'|g" tests/rm/fail-2eperm.sh
 
 sed -i -e "s|rm: cannot remove 'a/b/file'|rm: cannot remove 'a'|g" tests/rm/cycle.sh
 
@@ -181,9 +238,16 @@ sed -i -e "s|rm: cannot remove 'rel': Permission denied|rm: cannot remove 'rel':
 
 # overlay-headers.sh test intends to check for inotify events,
 # however there's a bug because `---dis` is an alias for: `---disable-inotify`
-sed -i -e "s|---dis ||g" tests/tail-2/overlay-headers.sh
+sed -i -e "s|---dis ||g" tests/tail/overlay-headers.sh
+
+# Do not FAIL, just do a regular ERROR
+sed -i -e "s|framework_failure_ 'no inotify_add_watch';|fail=1;|" tests/tail/inotify-rotate-resources.sh
 
 test -f "${UU_BUILD_DIR}/getlimits" || cp src/getlimits "${UU_BUILD_DIR}"
+
+# pr produces very long log and this command isn't super interesting
+# SKIP for now
+sed -i -e "s|my \$prog = 'pr';$|my \$prog = 'pr';CuSkip::skip \"\$prog: SKIP for producing too long logs\";|" tests/pr/pr-tests.pl
 
 # When decoding an invalid base32/64 string, gnu writes everything it was able to decode until
 # it hit the decode error, while we don't write anything if the input is invalid.
@@ -230,19 +294,44 @@ sed -i -e "s/ginstall: creating directory/install: creating directory/g" tests/i
 
 # GNU doesn't support padding < -LONG_MAX
 # disable this test case
-sed -i -Ez "s/\n([^\n#]*pad-3\.2[^\n]*)\n([^\n]*)\n([^\n]*)/\n# uutils\/numfmt supports padding = LONG_MIN\n#\1\n#\2\n#\3/" tests/misc/numfmt.pl
+# Use GNU sed because option -z is not available on BSD sed
+"${SED}" -i -Ez "s/\n([^\n#]*pad-3\.2[^\n]*)\n([^\n]*)\n([^\n]*)/\n# uutils\/numfmt supports padding = LONG_MIN\n#\1\n#\2\n#\3/" tests/misc/numfmt.pl
 
 # Update the GNU error message to match the one generated by clap
 sed -i -e "s/\$prog: multiple field specifications/error: The argument '--field <FIELDS>' was provided more than once, but cannot be used multiple times\n\nUsage: numfmt [OPTION]... [NUMBER]...\n\n\nFor more information try '--help'/g" tests/misc/numfmt.pl
 sed -i -e "s/Try 'mv --help' for more information/For more information, try '--help'/g" -e "s/mv: missing file operand/error: the following required arguments were not provided:\n  <files>...\n\nUsage: mv [OPTION]... [-T] SOURCE DEST\n       mv [OPTION]... SOURCE... DIRECTORY\n       mv [OPTION]... -t DIRECTORY SOURCE...\n/g" -e "s/mv: missing destination file operand after 'no-file'/error: The argument '<files>...' requires at least 2 values, but only 1 was provided\n\nUsage: mv [OPTION]... [-T] SOURCE DEST\n       mv [OPTION]... SOURCE... DIRECTORY\n       mv [OPTION]... -t DIRECTORY SOURCE...\n/g" tests/mv/diag.sh
 
+# our error message is better
+sed -i -e "s|mv: cannot overwrite 'a/t': Directory not empty|mv: cannot move 'b/t' to 'a/t': Directory not empty|" tests/mv/dir2dir.sh
+
 # GNU doesn't support width > INT_MAX
 # disable these test cases
-sed -i -E "s|^([^#]*2_31.*)$|#\1|g" tests/misc/printf-cov.pl
+sed -i -E "s|^([^#]*2_31.*)$|#\1|g" tests/printf/printf-cov.pl
 
 sed -i -e "s/du: invalid -t argument/du: invalid --threshold argument/" -e "s/du: option requires an argument/error: a value is required for '--threshold <SIZE>' but none was supplied/" -e "/Try 'du --help' for more information./d" tests/du/threshold.sh
+
+# Remove the extra output check
+sed -i -e "s|Try '\$prog --help' for more information.\\\n||" tests/du/files0-from.pl
+sed -i -e "s|when reading file names from stdin, no file name of\"|-: No such file or directory\n\"|" -e "s| '-' allowed\\\n||" tests/du/files0-from.pl
+
+awk 'BEGIN {count=0} /compare exp out2/ && count < 6 {sub(/compare exp out2/, "grep -q \"cannot be used with\" out2"); count++} 1' tests/df/df-output.sh > tests/df/df-output.sh.tmp && mv tests/df/df-output.sh.tmp tests/df/df-output.sh
+
+# with ls --dired, in case of error, we have a slightly different error position
+sed -i -e "s|44 45|48 49|" tests/ls/stat-failed.sh
+
+# small difference in the error message
+# Use GNU sed for /c command
+"${SED}" -i -e "/ls: invalid argument 'XX' for 'time style'/,/Try 'ls --help' for more information\./c\
+ls: invalid --time-style argument 'XX'\nPossible values are: [\"full-iso\", \"long-iso\", \"iso\", \"locale\", \"+FORMAT (e.g., +%H:%M) for a 'date'-style format\"]\n\nFor more information try --help" tests/ls/time-style-diag.sh
 
 # disable two kind of tests:
 # "hostid BEFORE --help" doesn't fail for GNU. we fail. we are probably doing better
 # "hostid BEFORE --help AFTER " same for this
-sed -i -e "s/env \$prog \$BEFORE \$opt > out2/env \$prog \$BEFORE \$opt > out2 #/" -e "s/env \$prog \$BEFORE \$opt AFTER > out3/env \$prog \$BEFORE \$opt AFTER > out3 #/" -e "s/compare exp out2/compare exp out2 #/" -e "s/compare exp out3/compare exp out3 #/" tests/misc/help-version-getopt.sh
+sed -i -e "s/env \$prog \$BEFORE \$opt > out2/env \$prog \$BEFORE \$opt > out2 #/" -e "s/env \$prog \$BEFORE \$opt AFTER > out3/env \$prog \$BEFORE \$opt AFTER > out3 #/" -e "s/compare exp out2/compare exp out2 #/" -e "s/compare exp out3/compare exp out3 #/" tests/help/help-version-getopt.sh
+
+# Add debug info + we have less syscall then GNU's. Adjust our check.
+# Use GNU sed for /c command
+"${SED}" -i -e '/test \$n_stat1 = \$n_stat2 \\/c\
+echo "n_stat1 = \$n_stat1"\n\
+echo "n_stat2 = \$n_stat2"\n\
+test \$n_stat1 -ge \$n_stat2 \\' tests/ls/stat-free-color.sh

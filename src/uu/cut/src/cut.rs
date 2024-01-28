@@ -1,7 +1,5 @@
 // This file is part of the uutils coreutils package.
 //
-// (c) Rolf Morel <rolfmorel@gmail.com>
-//
 // For the full copyright and license information, please view the LICENSE
 // file that was distributed with this source code.
 
@@ -9,17 +7,17 @@
 
 use bstr::io::BufReadExt;
 use clap::{crate_version, Arg, ArgAction, Command};
-use is_terminal::IsTerminal;
 use std::fs::File;
-use std::io::{stdin, stdout, BufReader, BufWriter, Read, Write};
+use std::io::{stdin, stdout, BufReader, BufWriter, IsTerminal, Read, Write};
 use std::path::Path;
 use uucore::display::Quotable;
-use uucore::error::{FromIo, UResult, USimpleError};
+use uucore::error::{set_exit_code, FromIo, UResult, USimpleError};
+use uucore::line_ending::LineEnding;
 
 use self::searcher::Searcher;
 use matcher::{ExactMatcher, Matcher, WhitespaceMatcher};
 use uucore::ranges::Range;
-use uucore::{format_usage, help_about, help_section, help_usage, show, show_error, show_if_err};
+use uucore::{format_usage, help_about, help_section, help_usage, show_error, show_if_err};
 
 mod matcher;
 mod searcher;
@@ -30,7 +28,7 @@ const AFTER_HELP: &str = help_section!("after help", "cut.md");
 
 struct Options {
     out_delim: Option<String>,
-    zero_terminated: bool,
+    line_ending: LineEnding,
 }
 
 enum Delimiter {
@@ -42,7 +40,7 @@ struct FieldOptions {
     delimiter: Delimiter,
     out_delimiter: Option<String>,
     only_delimited: bool,
-    zero_terminated: bool,
+    line_ending: LineEnding,
 }
 
 enum Mode {
@@ -68,7 +66,7 @@ fn list_to_ranges(list: &str, complement: bool) -> Result<Vec<Range>, String> {
 }
 
 fn cut_bytes<R: Read>(reader: R, ranges: &[Range], opts: &Options) -> UResult<()> {
-    let newline_char = if opts.zero_terminated { b'\0' } else { b'\n' };
+    let newline_char = opts.line_ending.into();
     let mut buf_in = BufReader::new(reader);
     let mut out = stdout_writer();
     let delim = opts
@@ -259,7 +257,7 @@ fn cut_fields_implicit_out_delim<R: Read, M: Matcher>(
 }
 
 fn cut_fields<R: Read>(reader: R, ranges: &[Range], opts: &FieldOptions) -> UResult<()> {
-    let newline_char = if opts.zero_terminated { b'\0' } else { b'\n' };
+    let newline_char = opts.line_ending.into();
     match opts.delimiter {
         Delimiter::String(ref delim) => {
             let matcher = ExactMatcher::new(delim.as_bytes());
@@ -321,6 +319,7 @@ fn cut_files(mut filenames: Vec<String>, mode: &Mode) {
 
             if path.is_dir() {
                 show_error!("{}: Is a directory", filename.maybe_quote());
+                set_exit_code(1);
                 continue;
             }
 
@@ -376,7 +375,7 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
                             .unwrap_or_default()
                             .to_owned(),
                     ),
-                    zero_terminated: matches.get_flag(options::ZERO_TERMINATED),
+                    line_ending: LineEnding::from_zero_flag(matches.get_flag(options::ZERO_TERMINATED)),
                 },
             )
         }),
@@ -391,7 +390,7 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
                             .unwrap_or_default()
                             .to_owned(),
                     ),
-                    zero_terminated: matches.get_flag(options::ZERO_TERMINATED),
+                    line_ending: LineEnding::from_zero_flag(matches.get_flag(options::ZERO_TERMINATED)),
                 },
             )
         }),
@@ -402,7 +401,7 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
                         if s.is_empty() {
                             Some("\0".to_owned())
                         } else {
-                            Some(s.to_owned())
+                            Some(s.clone())
                         }
                     }
                     None => None,
@@ -411,6 +410,7 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
                 let only_delimited = matches.get_flag(options::ONLY_DELIMITED);
                 let whitespace_delimited = matches.get_flag(options::WHITESPACE_DELIMITED);
                 let zero_terminated = matches.get_flag(options::ZERO_TERMINATED);
+                let line_ending = LineEnding::from_zero_flag(zero_terminated);
 
                 match matches.get_one::<String>(options::DELIMITER).map(|s| s.as_str()) {
                     Some(_) if whitespace_delimited => {
@@ -427,7 +427,7 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
                             delim = "";
                         }
                         if delim.chars().count() > 1 {
-                            Err("invalid input: The '--delimiter' ('-d') option expects empty or 1 character long, but was provided a value 2 characters or longer".into())
+                            Err("the delimiter must be a single character".into())
                         } else {
                             let delim = if delim.is_empty() {
                                 "\0".to_owned()
@@ -441,7 +441,7 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
                                     delimiter: Delimiter::String(delim),
                                     out_delimiter: out_delim,
                                     only_delimited,
-                                    zero_terminated,
+                                    line_ending,
                                 },
                             ))
                         }
@@ -455,7 +455,7 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
                             },
                             out_delimiter: out_delim,
                             only_delimited,
-                            zero_terminated,
+                            line_ending,
                         },
                     )),
                 }
@@ -492,7 +492,7 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
     let files: Vec<String> = matches
         .get_many::<String>(options::FILE)
         .unwrap_or_default()
-        .map(|s| s.to_owned())
+        .cloned()
         .collect();
 
     match mode_parse {
@@ -511,6 +511,7 @@ pub fn uu_app() -> Command {
         .about(ABOUT)
         .after_help(AFTER_HELP)
         .infer_long_args(true)
+        .args_override_self(true)
         .arg(
             Arg::new(options::BYTES)
                 .short('b')

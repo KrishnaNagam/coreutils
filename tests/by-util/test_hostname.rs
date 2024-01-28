@@ -1,3 +1,7 @@
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 use crate::common::util::TestScenario;
 
 #[test]
@@ -10,8 +14,8 @@ fn test_hostname() {
     assert!(ls_default_res.stdout().len() >= ls_domain_res.stdout().len());
 }
 
-// FixME: fails for "MacOS" and "freebsd" "failed to lookup address information: Name does not resolve"
-#[cfg(not(any(target_os = "macos", target_os = "freebsd")))]
+// FixME: fails for "MacOS", "freebsd" and "openbsd" "failed to lookup address information: Name does not resolve"
+#[cfg(not(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd")))]
 #[test]
 fn test_hostname_ip() {
     let result = new_ucmd!().arg("-i").succeeds();

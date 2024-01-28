@@ -1,9 +1,7 @@
-//  * This file is part of the uutils coreutils package.
-//  *
-//  * (c) Joseph Crail <jbcrail@gmail.com>
-//  *
-//  * For the full copyright and license information, please view the LICENSE
-//  * file that was distributed with this source code.
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 
 // spell-checker:ignore (ToDO) srcpath targetpath EEXIST
 
@@ -14,6 +12,7 @@ use uucore::fs::{make_path_relative_to, paths_refer_to_same_file};
 use uucore::{format_usage, help_about, help_section, help_usage, prompt_yes, show_error};
 
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::error::Error;
 use std::ffi::OsString;
 use std::fmt::Display;
@@ -297,9 +296,11 @@ fn link_files_in_dir(files: &[PathBuf], target_dir: &Path, settings: &Settings) 
     if !target_dir.is_dir() {
         return Err(LnError::TargetIsDirectory(target_dir.to_owned()).into());
     }
+    // remember the linked destinations for further usage
+    let mut linked_destinations: HashSet<PathBuf> = HashSet::with_capacity(files.len());
 
     let mut all_successful = true;
-    for srcpath in files.iter() {
+    for srcpath in files {
         let targetpath =
             if settings.no_dereference && matches!(settings.overwrite, OverwriteMode::Force) {
                 // In that case, we don't want to do link resolution
@@ -340,10 +341,20 @@ fn link_files_in_dir(files: &[PathBuf], target_dir: &Path, settings: &Settings) 
                 }
             };
 
-        if let Err(e) = link(srcpath, &targetpath, settings) {
+        if linked_destinations.contains(&targetpath) {
+            // If the target file was already created in this ln call, do not overwrite
+            show_error!(
+                "will not overwrite just-created '{}' with '{}'",
+                targetpath.display(),
+                srcpath.display()
+            );
+            all_successful = false;
+        } else if let Err(e) = link(srcpath, &targetpath, settings) {
             show_error!("{}", e);
             all_successful = false;
         }
+
+        linked_destinations.insert(targetpath.clone());
     }
     if all_successful {
         Ok(())

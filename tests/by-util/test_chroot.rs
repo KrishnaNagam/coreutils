@@ -1,3 +1,7 @@
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 // spell-checker:ignore (words) araba newroot userspec chdir pwd's isroot
 
 #[cfg(not(target_os = "android"))]
@@ -120,7 +124,7 @@ fn test_default_shell() {
     if let Ok(result) = run_ucmd_as_root(&ts, &[dir]) {
         result.stderr_contains(expected);
     } else {
-        print!("TEST SKIPPED");
+        print!("Test skipped; requires root user");
     }
 }
 

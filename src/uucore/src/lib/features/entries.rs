@@ -1,7 +1,5 @@
 // This file is part of the uutils coreutils package.
 //
-// (c) Jian Zeng <anonymousknight96@gmail.com>
-//
 // For the full copyright and license information, please view the LICENSE
 // file that was distributed with this source code.
 
@@ -37,7 +35,6 @@
 #[cfg(any(target_os = "freebsd", target_vendor = "apple"))]
 use libc::time_t;
 use libc::{c_char, c_int, gid_t, uid_t};
-#[cfg(not(target_os = "redox"))]
 use libc::{getgrgid, getgrnam, getgroups};
 use libc::{getpwnam, getpwuid, group, passwd};
 
@@ -69,7 +66,6 @@ extern "C" {
 /// > supplementary group IDs for the process is returned.  This allows
 /// > the caller to determine the size of a dynamically allocated list
 /// > to be used in a further call to getgroups().
-#[cfg(not(target_os = "redox"))]
 pub fn get_groups() -> IOResult<Vec<gid_t>> {
     let mut groups = Vec::new();
     loop {
@@ -220,7 +216,7 @@ impl Passwd {
         let mut ngroups: c_int = 8;
         let mut ngroups_old: c_int;
         let mut groups = vec![0; ngroups.try_into().unwrap()];
-        let name = CString::new(self.name.clone()).unwrap();
+        let name = CString::new(self.name.as_bytes()).unwrap();
         loop {
             ngroups_old = ngroups;
             if unsafe { getgrouplist(name.as_ptr(), self.gid, groups.as_mut_ptr(), &mut ngroups) }
@@ -339,7 +335,6 @@ macro_rules! f {
 }
 
 f!(getpwnam, getpwuid, uid_t, Passwd);
-#[cfg(not(target_os = "redox"))]
 f!(getgrnam, getgrgid, gid_t, Group);
 
 #[inline]
@@ -347,7 +342,6 @@ pub fn uid2usr(id: uid_t) -> IOResult<String> {
     Passwd::locate(id).map(|p| p.name)
 }
 
-#[cfg(not(target_os = "redox"))]
 #[inline]
 pub fn gid2grp(id: gid_t) -> IOResult<String> {
     Group::locate(id).map(|p| p.name)
@@ -358,7 +352,6 @@ pub fn usr2uid(name: &str) -> IOResult<uid_t> {
     Passwd::locate(name).map(|p| p.uid)
 }
 
-#[cfg(not(target_os = "redox"))]
 #[inline]
 pub fn grp2gid(name: &str) -> IOResult<gid_t> {
     Group::locate(name).map(|p| p.gid)

@@ -1,7 +1,7 @@
-//  * This file is part of the uutils coreutils package.
-//  *
-//  * For the full copyright and license information, please view the LICENSE
-//  * file that was distributed with this source code.
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 
 //spell-checker: ignore (linux) rlimit prlimit coreutil ggroups uchild uncaptured scmd SHLVL canonicalized
 
@@ -55,9 +55,7 @@ const DEFAULT_ENV: [(&str, &str); 2] = [("LC_ALL", "C"), ("TZ", "UTC")];
 
 /// Test if the program is running under CI
 pub fn is_ci() -> bool {
-    std::env::var("CI")
-        .unwrap_or_else(|_| String::from("false"))
-        .eq_ignore_ascii_case("true")
+    std::env::var("CI").is_ok_and(|s| s.eq_ignore_ascii_case("true"))
 }
 
 /// Read a test scenario fixture, returning its bytes
@@ -541,7 +539,7 @@ impl CmdResult {
         let contents = String::from_utf8(read_scenario_fixture(&self.tmpd, file_rel_path)).unwrap();
         let possible_values = template_vars.iter().map(|vars| {
             let mut contents = contents.clone();
-            for kv in vars.iter() {
+            for kv in vars {
                 contents = contents.replace(&kv.0, &kv.1);
             }
             contents
@@ -756,6 +754,26 @@ pub fn get_root_path() -> &'static str {
     } else {
         "/"
     }
+}
+
+/// Compares the extended attributes (xattrs) of two files or directories.
+///
+/// # Returns
+///
+/// `true` if both paths have the same set of extended attributes, `false` otherwise.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn compare_xattrs<P: AsRef<std::path::Path>>(path1: P, path2: P) -> bool {
+    let get_sorted_xattrs = |path: P| {
+        xattr::list(path)
+            .map(|attrs| {
+                let mut attrs = attrs.collect::<Vec<_>>();
+                attrs.sort();
+                attrs
+            })
+            .unwrap_or_else(|_| Vec::new())
+    };
+
+    get_sorted_xattrs(path1) == get_sorted_xattrs(path2)
 }
 
 /// Object-oriented path struct that represents and operates on
@@ -2211,12 +2229,12 @@ impl UChild {
         let join_handle = thread::spawn(move || {
             let mut writer = BufWriter::new(stdin);
 
-            match writer.write_all(&content).and_then(|_| writer.flush()) {
+            match writer.write_all(&content).and_then(|()| writer.flush()) {
                 Err(error) if !ignore_stdin_write_error => Err(io::Error::new(
                     io::ErrorKind::Other,
                     format!("failed to write to stdin of child: {error}"),
                 )),
-                Ok(_) | Err(_) => Ok(()),
+                Ok(()) | Err(_) => Ok(()),
             }
         });
 
@@ -2263,12 +2281,12 @@ impl UChild {
     pub fn try_write_in<T: Into<Vec<u8>>>(&mut self, data: T) -> io::Result<()> {
         let stdin = self.raw.stdin.as_mut().unwrap();
 
-        match stdin.write_all(&data.into()).and_then(|_| stdin.flush()) {
+        match stdin.write_all(&data.into()).and_then(|()| stdin.flush()) {
             Err(error) if !self.ignore_stdin_write_error => Err(io::Error::new(
                 io::ErrorKind::Other,
                 format!("failed to write to stdin of child: {error}"),
             )),
-            Ok(_) | Err(_) => Ok(()),
+            Ok(()) | Err(_) => Ok(()),
         }
     }
 
@@ -2505,11 +2523,11 @@ pub fn expected_result(ts: &TestScenario, args: &[&str]) -> std::result::Result<
 
 /// This is a convenience wrapper to run a ucmd with root permissions.
 /// It can be used to test programs when being root is needed
-/// This runs 'sudo -E --non-interactive target/debug/coreutils util_name args`
+/// This runs `sudo -E --non-interactive target/debug/coreutils util_name args`
 /// This is primarily designed to run in an environment where whoami is in $path
 /// and where non-interactive sudo is possible.
 /// To check if i) non-interactive sudo is possible and ii) if sudo works, this runs:
-/// 'sudo -E --non-interactive whoami' first.
+/// `sudo -E --non-interactive whoami` first.
 ///
 /// This return an `Err()` if run inside CICD because there's no 'sudo'.
 ///
@@ -2533,6 +2551,16 @@ pub fn run_ucmd_as_root(
     ts: &TestScenario,
     args: &[&str],
 ) -> std::result::Result<CmdResult, String> {
+    run_ucmd_as_root_with_stdin_stdout(ts, args, None, None)
+}
+
+#[cfg(unix)]
+pub fn run_ucmd_as_root_with_stdin_stdout(
+    ts: &TestScenario,
+    args: &[&str],
+    stdin: Option<&str>,
+    stdout: Option<&str>,
+) -> std::result::Result<CmdResult, String> {
     if is_ci() {
         Err(format!("{UUTILS_INFO}: {}", "cannot run inside CI"))
     } else {
@@ -2546,16 +2574,21 @@ pub fn run_ucmd_as_root(
             Ok(output) if String::from_utf8_lossy(&output.stdout).eq("root\n") => {
                 // we can run sudo and we're root
                 // run ucmd as root:
-                Ok(ts
-                    .cmd("sudo")
-                    .env("PATH", PATH)
+                let mut cmd = ts.cmd("sudo");
+                cmd.env("PATH", PATH)
                     .envs(DEFAULT_ENV)
                     .arg("-E")
                     .arg("--non-interactive")
                     .arg(&ts.bin_path)
                     .arg(&ts.util_name)
-                    .args(args)
-                    .run())
+                    .args(args);
+                if let Some(stdin) = stdin {
+                    cmd.set_stdin(File::open(stdin).unwrap());
+                }
+                if let Some(stdout) = stdout {
+                    cmd.set_stdout(File::open(stdout).unwrap());
+                }
+                Ok(cmd.run())
             }
             Ok(output)
                 if String::from_utf8_lossy(&output.stderr).eq("sudo: a password is required\n") =>
@@ -3279,7 +3312,7 @@ mod tests {
                 std::assert_eq!(error.to_string(), "kill: Timeout of '0s' reached");
             }
             Err(error) => panic!("Assertion failed: Expected error with timeout but was: {error}"),
-            Ok(_) => panic!("Assertion failed: Expected timeout of `try_kill`."),
+            Ok(()) => panic!("Assertion failed: Expected timeout of `try_kill`."),
         }
     }
 
@@ -3361,5 +3394,27 @@ mod tests {
             command.args.make_contiguous()
         );
         assert!(command.tmpd.is_some());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn test_compare_xattrs() {
+        use tempfile::tempdir;
+
+        let temp_dir = tempdir().unwrap();
+        let file_path1 = temp_dir.path().join("test_file1.txt");
+        let file_path2 = temp_dir.path().join("test_file2.txt");
+
+        File::create(&file_path1).unwrap();
+        File::create(&file_path2).unwrap();
+
+        let test_attr = "user.test_attr";
+        let test_value = b"test value";
+        xattr::set(&file_path1, test_attr, test_value).unwrap();
+
+        assert!(!compare_xattrs(&file_path1, &file_path2));
+
+        xattr::set(&file_path2, test_attr, test_value).unwrap();
+        assert!(compare_xattrs(&file_path1, &file_path2));
     }
 }

@@ -1,7 +1,7 @@
-//  * This file is part of the uutils coreutils package.
-//  *
-//  * For the full copyright and license information, please view the LICENSE
-//  * file that was distributed with this source code.
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 
 // spell-checker:ignore (ToDO) abcdefghijklmnopqrstuvwxyz efghijklmnopqrstuvwxyz vwxyz emptyfile file siette ocho nueve diez MULT
 // spell-checker:ignore (libs) kqueue
@@ -23,6 +23,7 @@ use std::io::Write;
 use std::io::{Seek, SeekFrom};
 #[cfg(all(
     not(target_vendor = "apple"),
+    not(target_os = "android"),
     not(target_os = "windows"),
     not(target_os = "freebsd")
 ))]
@@ -31,6 +32,7 @@ use std::process::Stdio;
 use tail::chunks::BUFFER_SIZE as CHUNK_BUFFER_SIZE;
 #[cfg(all(
     not(target_vendor = "apple"),
+    not(target_os = "android"),
     not(target_os = "windows"),
     not(target_os = "freebsd")
 ))]

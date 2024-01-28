@@ -1,3 +1,7 @@
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 use crate::common::util::TestScenario;
 
 static INPUT: &str = "lists.txt";
@@ -114,13 +118,30 @@ fn test_whitespace_with_char() {
 }
 
 #[test]
-fn test_specify_delimiter() {
+fn test_too_large() {
+    new_ucmd!()
+        .args(&["-b1-18446744073709551615", "/dev/null"])
+        .fails()
+        .code_is(1);
+}
+
+#[test]
+fn test_delimiter() {
     for param in ["-d", "--delimiter", "--del"] {
         new_ucmd!()
             .args(&[param, ":", "-f", COMPLEX_SEQUENCE.sequence, INPUT])
             .succeeds()
             .stdout_only_fixture("delimiter_specified.expected");
     }
+}
+
+#[test]
+fn test_delimiter_with_more_than_one_char() {
+    new_ucmd!()
+        .args(&["-d", "ab", "-f1"])
+        .fails()
+        .stderr_contains("cut: the delimiter must be a single character")
+        .no_stdout();
 }
 
 #[test]
@@ -191,20 +212,25 @@ fn test_zero_terminated_only_delimited() {
 }
 
 #[test]
-fn test_directory_and_no_such_file() {
+fn test_is_a_directory() {
     let (at, mut ucmd) = at_and_ucmd!();
 
     at.mkdir("some");
 
     ucmd.arg("-b1")
         .arg("some")
-        .run()
+        .fails()
+        .code_is(1)
         .stderr_is("cut: some: Is a directory\n");
+}
 
+#[test]
+fn test_no_such_file() {
     new_ucmd!()
         .arg("-b1")
         .arg("some")
-        .run()
+        .fails()
+        .code_is(1)
         .stderr_is("cut: some: No such file or directory\n");
 }
 
@@ -233,4 +259,14 @@ fn test_equal_as_delimiter3() {
         .pipe_in("ab\0cd\n")
         .succeeds()
         .stdout_only_bytes("abZcd\n");
+}
+
+#[test]
+fn test_multiple() {
+    let result = new_ucmd!()
+        .args(&["-f2", "-d:", "-d="])
+        .pipe_in("a=b\n")
+        .succeeds();
+    assert_eq!(result.stdout_str(), "b\n");
+    assert_eq!(result.stderr_str(), "");
 }

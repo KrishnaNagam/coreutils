@@ -1,3 +1,7 @@
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 // spell-checker:ignore (regex) SKIPTO UPTO ; (vars) ntimes
 
 use crate::csplit_error::CsplitError;
@@ -192,7 +196,7 @@ mod tests {
             .collect();
         let patterns = get_patterns(input.as_slice()).unwrap();
         assert_eq!(patterns.len(), 3);
-        match patterns.get(0) {
+        match patterns.first() {
             Some(Pattern::UpToLine(24, ExecutePattern::Times(1))) => (),
             _ => panic!("expected UpToLine pattern"),
         };
@@ -207,6 +211,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cognitive_complexity)]
     fn up_to_match_pattern() {
         let input: Vec<String> = vec![
             "/test1.*end$/",
@@ -222,7 +227,7 @@ mod tests {
         .collect();
         let patterns = get_patterns(input.as_slice()).unwrap();
         assert_eq!(patterns.len(), 5);
-        match patterns.get(0) {
+        match patterns.first() {
             Some(Pattern::UpToMatch(reg, 0, ExecutePattern::Times(1))) => {
                 let parsed_reg = format!("{reg}");
                 assert_eq!(parsed_reg, "test1.*end$");
@@ -260,6 +265,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cognitive_complexity)]
     fn skip_to_match_pattern() {
         let input: Vec<String> = vec![
             "%test1.*end$%",
@@ -275,7 +281,7 @@ mod tests {
         .collect();
         let patterns = get_patterns(input.as_slice()).unwrap();
         assert_eq!(patterns.len(), 5);
-        match patterns.get(0) {
+        match patterns.first() {
             Some(Pattern::SkipToMatch(reg, 0, ExecutePattern::Times(1))) => {
                 let parsed_reg = format!("{reg}");
                 assert_eq!(parsed_reg, "test1.*end$");

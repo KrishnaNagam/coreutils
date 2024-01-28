@@ -1,14 +1,14 @@
-//  * This file is part of the uutils coreutils package.
-//  *
-//  * For the full copyright and license information, please view the LICENSE
-//  * file that was distributed with this source code.
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 // spell-checker:ignore TODO canonicalizes direntry pathbuf symlinked
 //! Recursively copy the contents of a directory.
 //!
 //! See the [`copy_directory`] function for more information.
 #[cfg(windows)]
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::io;
@@ -17,15 +17,17 @@ use std::path::{Path, PathBuf, StripPrefixError};
 use indicatif::ProgressBar;
 use uucore::display::Quotable;
 use uucore::error::UIoError;
-use uucore::fs::{canonicalize, FileInformation, MissingHandling, ResolveMode};
+use uucore::fs::{
+    canonicalize, path_ends_with_terminator, FileInformation, MissingHandling, ResolveMode,
+};
 use uucore::show;
 use uucore::show_error;
 use uucore::uio_error;
 use walkdir::{DirEntry, WalkDir};
 
 use crate::{
-    aligned_ancestors, context_for, copy_attributes, copy_file, copy_link, preserve_hardlinks,
-    CopyResult, Error, Options, TargetSlice,
+    aligned_ancestors, context_for, copy_attributes, copy_file, copy_link, CopyResult, Error,
+    Options,
 };
 
 /// Ensure a Windows path starts with a `\\?`.
@@ -33,8 +35,8 @@ use crate::{
 fn adjust_canonicalization(p: &Path) -> Cow<Path> {
     // In some cases, \\? can be missing on some Windows paths.  Add it at the
     // beginning unless the path is prefixed with a device namespace.
-    const VERBATIM_PREFIX: &str = r#"\\?"#;
-    const DEVICE_NS_PREFIX: &str = r#"\\."#;
+    const VERBATIM_PREFIX: &str = r"\\?";
+    const DEVICE_NS_PREFIX: &str = r"\\.";
 
     let has_prefix = p
         .components()
@@ -87,6 +89,9 @@ struct Context<'a> {
 
     /// The target path to which the directory will be copied.
     target: &'a Path,
+
+    /// The source path from which the directory will be copied.
+    root: &'a Path,
 }
 
 impl<'a> Context<'a> {
@@ -102,6 +107,7 @@ impl<'a> Context<'a> {
             current_dir,
             root_parent,
             target,
+            root,
         })
     }
 }
@@ -156,11 +162,26 @@ struct Entry {
 }
 
 impl Entry {
-    fn new(context: &Context, direntry: &DirEntry) -> Result<Self, StripPrefixError> {
+    fn new(
+        context: &Context,
+        direntry: &DirEntry,
+        no_target_dir: bool,
+    ) -> Result<Self, StripPrefixError> {
         let source_relative = direntry.path().to_path_buf();
         let source_absolute = context.current_dir.join(&source_relative);
-        let descendant =
+        let mut descendant =
             get_local_to_root_parent(&source_absolute, context.root_parent.as_deref())?;
+        if no_target_dir {
+            let source_is_dir = direntry.path().is_dir();
+            if path_ends_with_terminator(context.target) && source_is_dir {
+                if let Err(e) = std::fs::create_dir_all(context.target) {
+                    eprintln!("Failed to create directory: {}", e);
+                }
+            } else {
+                descendant = descendant.strip_prefix(context.root)?.to_path_buf();
+            }
+        }
+
         let local_to_target = context.target.join(descendant);
         let target_is_file = context.target.is_file();
         Ok(Self {
@@ -200,7 +221,7 @@ fn copy_direntry(
     options: &Options,
     symlinked_files: &mut HashSet<FileInformation>,
     preserve_hard_links: bool,
-    hard_links: &mut Vec<(String, u64)>,
+    copied_files: &mut HashMap<FileInformation, PathBuf>,
 ) -> CopyResult<()> {
     let Entry {
         source_absolute,
@@ -240,30 +261,27 @@ fn copy_direntry(
     // If the source is not a directory, then we need to copy the file.
     if !source_absolute.is_dir() {
         if preserve_hard_links {
-            let dest = local_to_target.as_path().to_path_buf();
-            let found_hard_link = preserve_hardlinks(hard_links, &source_absolute, &dest)?;
-            if !found_hard_link {
-                match copy_file(
-                    progress_bar,
-                    &source_absolute,
-                    local_to_target.as_path(),
-                    options,
-                    symlinked_files,
-                    false,
-                ) {
-                    Ok(_) => Ok(()),
-                    Err(err) => {
-                        if source_absolute.is_symlink() {
-                            // silent the error with a symlink
-                            // In case we do --archive, we might copy the symlink
-                            // before the file itself
-                            Ok(())
-                        } else {
-                            Err(err)
-                        }
+            match copy_file(
+                progress_bar,
+                &source_absolute,
+                local_to_target.as_path(),
+                options,
+                symlinked_files,
+                copied_files,
+                false,
+            ) {
+                Ok(_) => Ok(()),
+                Err(err) => {
+                    if source_absolute.is_symlink() {
+                        // silent the error with a symlink
+                        // In case we do --archive, we might copy the symlink
+                        // before the file itself
+                        Ok(())
+                    } else {
+                        Err(err)
                     }
-                }?;
-            }
+                }
+            }?;
         } else {
             // At this point, `path` is just a plain old file.
             // Terminate this function immediately if there is any
@@ -277,6 +295,7 @@ fn copy_direntry(
                 local_to_target.as_path(),
                 options,
                 symlinked_files,
+                copied_files,
                 false,
             ) {
                 Ok(_) => {}
@@ -307,13 +326,14 @@ fn copy_direntry(
 pub(crate) fn copy_directory(
     progress_bar: &Option<ProgressBar>,
     root: &Path,
-    target: &TargetSlice,
+    target: &Path,
     options: &Options,
     symlinked_files: &mut HashSet<FileInformation>,
+    copied_files: &mut HashMap<FileInformation, PathBuf>,
     source_in_command_line: bool,
 ) -> CopyResult<()> {
     if !options.recursive {
-        return Err(format!("omitting directory {}", root.quote()).into());
+        return Err(format!("-r not specified; omitting directory {}", root.quote()).into());
     }
 
     // if no-dereference is enabled and this is a symlink, copy it as a file
@@ -324,6 +344,7 @@ pub(crate) fn copy_directory(
             target,
             options,
             symlinked_files,
+            copied_files,
             source_in_command_line,
         );
     }
@@ -372,7 +393,6 @@ pub(crate) fn copy_directory(
     };
     let target = tmp.as_path();
 
-    let mut hard_links: Vec<(String, u64)> = vec![];
     let preserve_hard_links = options.preserve_hard_links();
 
     // Collect some paths here that are invariant during the traversal
@@ -390,14 +410,14 @@ pub(crate) fn copy_directory(
     {
         match direntry_result {
             Ok(direntry) => {
-                let entry = Entry::new(&context, &direntry)?;
+                let entry = Entry::new(&context, &direntry, options.no_target_dir)?;
                 copy_direntry(
                     progress_bar,
                     entry,
                     options,
                     symlinked_files,
                     preserve_hard_links,
-                    &mut hard_links,
+                    copied_files,
                 )?;
             }
             // Print an error message, but continue traversing the directory.
@@ -448,6 +468,7 @@ mod tests {
     use super::ends_with_slash_dot;
 
     #[test]
+    #[allow(clippy::cognitive_complexity)]
     fn test_ends_with_slash_dot() {
         assert!(ends_with_slash_dot("/."));
         assert!(ends_with_slash_dot("./."));

@@ -1,9 +1,7 @@
-//  * This file is part of the uutils coreutils package.
-//  *
-//  * (c) Michael Debertol <michael.debertol..AT..gmail.com>
-//  *
-//  * For the full copyright and license information, please view the LICENSE
-//  * file that was distributed with this source code.
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 
 //! Fast comparison for strings representing a base 10 number without precision loss.
 //!
@@ -396,8 +394,8 @@ mod tests {
         let (a_info, a_range) = NumInfo::parse(a, &NumInfoParseSettings::default());
         let (b_info, b_range) = NumInfo::parse(b, &NumInfoParseSettings::default());
         let ordering = numeric_str_cmp(
-            (&a[a_range.to_owned()], &a_info),
-            (&b[b_range.to_owned()], &b_info),
+            (&a[a_range.clone()], &a_info),
+            (&b[b_range.clone()], &b_info),
         );
         assert_eq!(ordering, expected);
         let ordering = numeric_str_cmp((&b[b_range], &b_info), (&a[a_range], &a_info));

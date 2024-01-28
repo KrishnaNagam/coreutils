@@ -1,3 +1,7 @@
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 // spell-checker:ignore lmnop xlmnop
 use crate::common::util::TestScenario;
 use std::process::Stdio;
@@ -620,8 +624,18 @@ fn test_neg_inf() {
 }
 
 #[test]
+fn test_neg_infinity() {
+    run(&["--", "-infinity", "0"], b"-inf\n-inf\n-inf\n");
+}
+
+#[test]
 fn test_inf() {
     run(&["inf"], b"1\n2\n3\n");
+}
+
+#[test]
+fn test_infinity() {
+    run(&["infinity"], b"1\n2\n3\n");
 }
 
 #[test]
@@ -751,4 +765,38 @@ fn test_invalid_zero_increment_value() {
         .fails()
         .no_stdout()
         .usage_error("invalid Zero increment value: '0'");
+}
+
+#[test]
+fn test_power_of_ten_display() {
+    new_ucmd!()
+        .args(&["-f", "%.2g", "10", "10"])
+        .succeeds()
+        .stdout_only("10\n");
+}
+
+#[test]
+fn test_default_g_precision() {
+    new_ucmd!()
+        .args(&["-f", "%010g", "1e5", "1e5"])
+        .succeeds()
+        .stdout_only("0000100000\n");
+    new_ucmd!()
+        .args(&["-f", "%010g", "1e6", "1e6"])
+        .succeeds()
+        .stdout_only("000001e+06\n");
+}
+
+#[test]
+fn test_invalid_format() {
+    new_ucmd!()
+        .args(&["-f", "%%g", "1"])
+        .fails()
+        .no_stdout()
+        .stderr_contains("format '%%g' has no % directive");
+    new_ucmd!()
+        .args(&["-f", "%g%g", "1"])
+        .fails()
+        .no_stdout()
+        .stderr_contains("format '%g%g' has too many % directives");
 }

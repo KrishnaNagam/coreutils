@@ -1,3 +1,7 @@
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 use crate::common::util::TestScenario;
 
 #[test]
@@ -17,11 +21,9 @@ fn test_users_check_name() {
     #[cfg(target_os = "linux")]
     let util_name = util_name!();
     #[cfg(target_vendor = "apple")]
-    let util_name = format!("g{}", util_name!());
+    let util_name = &format!("g{}", util_name!());
 
-    // note: clippy::needless_borrow *false positive*
-    #[allow(clippy::needless_borrow)]
-    let expected = TestScenario::new(&util_name)
+    let expected = TestScenario::new(util_name)
         .cmd(util_name)
         .env("LC_ALL", "C")
         .succeeds()

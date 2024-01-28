@@ -1,9 +1,7 @@
 // This file is part of the uutils coreutils package.
 //
-// (c) Jian Zeng <anonymousknight96@gmail.com>
-//
-// For the full copyright and license information, please view the LICENSE file
-// that was distributed with this source code.
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 
 use clap::builder::ValueParser;
 use uucore::display::Quotable;
@@ -406,6 +404,7 @@ fn print_unsigned_hex(
 }
 
 impl Stater {
+    #[allow(clippy::cognitive_complexity)]
     fn generate_tokens(format_str: &str, use_printf: bool) -> UResult<Vec<Token>> {
         let mut tokens = Vec::new();
         let bound = format_str.len();
@@ -611,6 +610,7 @@ impl Stater {
         ret
     }
 
+    #[allow(clippy::cognitive_complexity)]
     fn do_stat(&self, file: &OsStr, stdin_is_fifo: bool) -> i32 {
         let display_name = file.to_string_lossy();
         let file = if cfg!(unix) && display_name == "-" {
@@ -635,7 +635,7 @@ impl Stater {
                 Ok(meta) => {
                     let tokens = &self.default_tokens;
 
-                    for t in tokens.iter() {
+                    for t in tokens {
                         match *t {
                             Token::Char(c) => print!("{c}"),
                             Token::Directive {
@@ -703,7 +703,7 @@ impl Stater {
                         &self.default_dev_tokens
                     };
 
-                    for t in tokens.iter() {
+                    for t in tokens {
                         match *t {
                             Token::Char(c) => print!("{c}"),
                             Token::Directive {
@@ -947,6 +947,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cognitive_complexity)]
     fn test_group_num() {
         assert_eq!("12,379,821,234", group_num("12379821234"));
         assert_eq!("21,234", group_num("21234"));

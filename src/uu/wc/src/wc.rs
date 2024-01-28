@@ -1,9 +1,7 @@
-//  * This file is part of the uutils coreutils package.
-//  *
-//  * (c) Boden Garman <bpgarman@gmail.com>
-//  *
-//  * For the full copyright and license information, please view the LICENSE
-//  * file that was distributed with this source code.
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 
 // cSpell:ignore ilog wc wc's
 
@@ -169,7 +167,9 @@ impl<'a> Inputs<'a> {
                     None => Ok(Self::Files0From(input)),
                 }
             }
-            (Some(_), Some(_)) => Err(WcError::FilesDisabled.into()),
+            (Some(mut files), Some(_)) => {
+                Err(WcError::files_disabled(files.next().unwrap()).into())
+            }
         }
     }
 
@@ -344,8 +344,8 @@ impl TotalWhen {
 
 #[derive(Debug, Error)]
 enum WcError {
-    #[error("file operands cannot be combined with --files0-from")]
-    FilesDisabled,
+    #[error("extra operand '{extra}'\nfile operands cannot be combined with --files0-from")]
+    FilesDisabled { extra: Cow<'static, str> },
     #[error("when reading file names from stdin, no file name of '-' allowed")]
     StdinReprNotAllowed,
     #[error("invalid zero-length file name")]
@@ -367,11 +367,15 @@ impl WcError {
             None => Self::ZeroLengthFileName,
         }
     }
+    fn files_disabled(first_extra: &OsString) -> Self {
+        let extra = first_extra.to_string_lossy().into_owned().into();
+        Self::FilesDisabled { extra }
+    }
 }
 
 impl UError for WcError {
     fn usage(&self) -> bool {
-        matches!(self, Self::FilesDisabled)
+        matches!(self, Self::FilesDisabled { .. })
     }
 }
 
@@ -391,6 +395,7 @@ pub fn uu_app() -> Command {
         .about(ABOUT)
         .override_usage(format_usage(USAGE))
         .infer_long_args(true)
+        .args_override_self(true)
         .arg(
             Arg::new(options::BYTES)
                 .short('c')
@@ -686,7 +691,7 @@ fn compute_number_width(inputs: &Inputs, settings: &Settings) -> usize {
 
             let mut minimum_width = 1;
             let mut total: u64 = 0;
-            for input in inputs.iter() {
+            for input in inputs {
                 match input {
                     Input::Stdin(_) => minimum_width = MINIMUM_WIDTH,
                     Input::Path(path) => {
@@ -704,7 +709,7 @@ fn compute_number_width(inputs: &Inputs, settings: &Settings) -> usize {
             if total == 0 {
                 minimum_width
             } else {
-                let total_width = (1 + ilog10_u64(total))
+                let total_width = (1 + total.ilog10())
                     .try_into()
                     .expect("ilog of a u64 should fit into a usize");
                 max(total_width, minimum_width)
@@ -857,31 +862,5 @@ fn print_stats(
         writeln!(stdout, "{space}{title}")
     } else {
         writeln!(stdout)
-    }
-}
-
-// TODO: remove and just use usize::ilog10 once the MSRV is >= 1.67.
-fn ilog10_u64(mut u: u64) -> u32 {
-    if u == 0 {
-        panic!("cannot compute log of 0")
-    }
-    let mut log = 0;
-    if u >= 10_000_000_000 {
-        log += 10;
-        u /= 10_000_000_000;
-    }
-    if u >= 100_000 {
-        log += 5;
-        u /= 100_000;
-    }
-    // Rust's standard library in versions >= 1.67 does something even more clever than this, but
-    // this should work just fine for the time being.
-    log + match u {
-        1..=9 => 0,
-        10..=99 => 1,
-        100..=999 => 2,
-        1000..=9999 => 3,
-        10000..=99999 => 4,
-        _ => unreachable!(),
     }
 }

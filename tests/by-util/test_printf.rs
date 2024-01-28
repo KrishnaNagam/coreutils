@@ -1,3 +1,7 @@
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 use crate::common::util::TestScenario;
 
 #[test]
@@ -30,6 +34,11 @@ fn escaped_slash() {
         .args(&["hello\\\\ world"])
         .succeeds()
         .stdout_only("hello\\ world");
+}
+
+#[test]
+fn unescaped_double_quote() {
+    new_ucmd!().args(&["\\\""]).succeeds().stdout_only("\"");
 }
 
 #[test]
@@ -109,6 +118,15 @@ fn sub_b_string_handle_escapes() {
 }
 
 #[test]
+fn sub_b_string_validate_field_params() {
+    new_ucmd!()
+        .args(&["hello %7b", "world"])
+        .run()
+        .stdout_is("hello ")
+        .stderr_is("printf: %7b: invalid conversion specification\n");
+}
+
+#[test]
 fn sub_b_string_ignore_subs() {
     new_ucmd!()
         .args(&["hello %b", "world %% %i"])
@@ -117,11 +135,44 @@ fn sub_b_string_ignore_subs() {
 }
 
 #[test]
+fn sub_q_string_non_printable() {
+    new_ucmd!()
+        .args(&["non-printable: %q", "\"$test\""])
+        .succeeds()
+        .stdout_only("non-printable: '\"$test\"'");
+}
+
+#[test]
+fn sub_q_string_validate_field_params() {
+    new_ucmd!()
+        .args(&["hello %7q", "world"])
+        .run()
+        .stdout_is("hello ")
+        .stderr_is("printf: %7q: invalid conversion specification\n");
+}
+
+#[test]
+fn sub_q_string_special_non_printable() {
+    new_ucmd!()
+        .args(&["non-printable: %q", "test~"])
+        .succeeds()
+        .stdout_only("non-printable: test~");
+}
+
+#[test]
 fn sub_char() {
     new_ucmd!()
         .args(&["the letter %c", "A"])
         .succeeds()
         .stdout_only("the letter A");
+}
+
+#[test]
+fn sub_char_from_string() {
+    new_ucmd!()
+        .args(&["%c%c%c", "five", "%", "oval"])
+        .succeeds()
+        .stdout_only("f%o");
 }
 
 #[test]
@@ -186,6 +237,11 @@ fn sub_num_int_char_const_in() {
         .args(&["ninety seven is %i", "'a"])
         .succeeds()
         .stdout_only("ninety seven is 97");
+
+    new_ucmd!()
+        .args(&["emoji is %i", "'🙃"])
+        .succeeds()
+        .stdout_only("emoji is 128579");
 }
 
 #[test]
@@ -221,6 +277,14 @@ fn sub_num_hex_upper() {
 }
 
 #[test]
+fn sub_num_hex_non_numerical() {
+    new_ucmd!()
+        .args(&["parameters need to be numbers %X", "%194"])
+        .fails()
+        .code_is(1);
+}
+
+#[test]
 fn sub_num_float() {
     new_ucmd!()
         .args(&["twenty is %f", "20"])
@@ -245,7 +309,16 @@ fn sub_num_float_e_no_round() {
 }
 
 #[test]
-fn sub_num_float_round() {
+fn sub_num_float_round_to_one() {
+    new_ucmd!()
+        .args(&["one is %f", "0.9999995"])
+        .succeeds()
+        .stdout_only("one is 1.000000");
+}
+
+#[test]
+#[ignore = "Requires 'long double' precision floats to be used internally"]
+fn sub_num_float_round_to_two() {
     new_ucmd!()
         .args(&["two is %f", "1.9999995"])
         .succeeds()
@@ -529,4 +602,81 @@ fn sub_general_round_float_leading_zeroes() {
         .args(&["%g", "1.000009"])
         .succeeds()
         .stdout_only("1.00001");
+}
+
+#[test]
+fn partial_float() {
+    new_ucmd!()
+        .args(&["%.2f is %s", "42.03x", "a lot"])
+        .fails()
+        .code_is(1)
+        .stdout_is("42.03 is a lot")
+        .stderr_is("printf: '42.03x': value not completely converted\n");
+}
+
+#[test]
+fn partial_integer() {
+    new_ucmd!()
+        .args(&["%d is %s", "42x23", "a lot"])
+        .fails()
+        .code_is(1)
+        .stdout_is("42 is a lot")
+        .stderr_is("printf: '42x23': value not completely converted\n");
+}
+
+#[test]
+fn test_overflow() {
+    new_ucmd!()
+        .args(&["%d", "36893488147419103232"])
+        .fails()
+        .code_is(1)
+        .stderr_is("printf: '36893488147419103232': Numerical result out of range\n");
+}
+
+#[test]
+fn partial_char() {
+    new_ucmd!()
+        .args(&["%d", "'abc"])
+        .fails()
+        .code_is(1)
+        .stdout_is("97")
+        .stderr_is(
+            "printf: warning: bc: character(s) following character constant have been ignored\n",
+        );
+}
+
+#[test]
+fn sub_alternative_lower_hex_0() {
+    new_ucmd!().args(&["%#x", "0"]).succeeds().stdout_only("0");
+}
+
+#[test]
+fn sub_alternative_lower_hex() {
+    new_ucmd!()
+        .args(&["%#x", "42"])
+        .succeeds()
+        .stdout_only("0x2a");
+}
+
+#[test]
+fn sub_alternative_upper_hex_0() {
+    new_ucmd!().args(&["%#X", "0"]).succeeds().stdout_only("0");
+}
+
+#[test]
+fn sub_alternative_upper_hex() {
+    new_ucmd!()
+        .args(&["%#X", "42"])
+        .succeeds()
+        .stdout_only("0x2A");
+}
+
+#[test]
+fn char_as_byte() {
+    new_ucmd!().args(&["%c", "🙃"]).succeeds().stdout_only("ð");
+}
+
+#[test]
+fn no_infinite_loop() {
+    new_ucmd!().args(&["a", "b"]).succeeds().stdout_only("a");
 }

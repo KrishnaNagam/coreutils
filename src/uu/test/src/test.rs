@@ -1,8 +1,5 @@
 // This file is part of the uutils coreutils package.
 //
-// (c) mahkoh (ju.orth [at] gmail [dot] com)
-// (c) Daniel Rocco <drocco@gmail.com>
-//
 // For the full copyright and license information, please view the LICENSE
 // file that was distributed with this source code.
 
@@ -20,6 +17,8 @@ use std::fs;
 use std::os::unix::fs::MetadataExt;
 use uucore::display::Quotable;
 use uucore::error::{UResult, USimpleError};
+#[cfg(not(windows))]
+use uucore::process::{getegid, geteuid};
 use uucore::{format_usage, help_about, help_section};
 
 const ABOUT: &str = help_about!("test.md");
@@ -30,10 +29,11 @@ const ABOUT: &str = help_about!("test.md");
 // So, we use test or [ instead of {} so that the usage string is correct.
 const USAGE: &str = "\
 test EXPRESSION
-test
+[
 [ EXPRESSION ]
 [ ]
-[ OPTION";
+[ OPTION
+]";
 
 // We use after_help so that this comes after the usage string (it would come before if we used about)
 const AFTER_HELP: &str = help_section!("after help", "test.md");
@@ -221,7 +221,7 @@ fn files(a: &OsStr, b: &OsStr, op: &OsStr) -> ParseResult<bool> {
         #[cfg(not(unix))]
         Some("-ef") => unimplemented!(),
         Some("-nt") => f_a.modified().unwrap() > f_b.modified().unwrap(),
-        Some("-ot") => f_a.created().unwrap() > f_b.created().unwrap(),
+        Some("-ot") => f_a.modified().unwrap() < f_b.modified().unwrap(),
         _ => return Err(ParseError::UnknownOperator(op.quote().to_string())),
     })
 }
@@ -279,7 +279,7 @@ fn path(path: &OsStr, condition: &PathCondition) -> bool {
 
     let geteuid = || {
         #[cfg(not(target_os = "redox"))]
-        let euid = unsafe { libc::geteuid() };
+        let euid = geteuid();
         #[cfg(target_os = "redox")]
         let euid = syscall::geteuid().unwrap() as u32;
 
@@ -288,7 +288,7 @@ fn path(path: &OsStr, condition: &PathCondition) -> bool {
 
     let getegid = || {
         #[cfg(not(target_os = "redox"))]
-        let egid = unsafe { libc::getegid() };
+        let egid = getegid();
         #[cfg(target_os = "redox")]
         let egid = syscall::getegid().unwrap() as u32;
 

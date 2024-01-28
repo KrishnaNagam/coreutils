@@ -1,11 +1,7 @@
-//  * This file is part of the uutils coreutils package.
-//  *
-//  * (c) Benoit Benedetti <benoit.benedetti@gmail.com>
-//  *
-//  * For the full copyright and license information, please view the LICENSE
-//  * file that was distributed with this source code.
-
-/* last synced with: logname (GNU coreutils) 8.22 */
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 
 // spell-checker:ignore (ToDO) getlogin userlogin
 
@@ -34,8 +30,6 @@ const USAGE: &str = help_usage!("logname.md");
 
 #[uucore::main]
 pub fn uumain(args: impl uucore::Args) -> UResult<()> {
-    let args = args.collect_ignore();
-
     let _ = uu_app().try_get_matches_from(args)?;
 
     match get_userlogin() {

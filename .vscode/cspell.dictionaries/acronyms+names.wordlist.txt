@@ -37,6 +37,7 @@ aarch
 flac
 impls
 lzma
+loongarch
 
 # * names
 BusyBox
@@ -58,6 +59,7 @@ MinGW
 Minix
 NetBSD
 Novell
+Nushell
 OpenBSD
 POSIX
 PowerPC

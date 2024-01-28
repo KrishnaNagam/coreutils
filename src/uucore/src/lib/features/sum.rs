@@ -1,9 +1,7 @@
 // This file is part of the uutils coreutils package.
 //
-// (c) Yuan YangHao <yuanyanghau@gmail.com>
-//
-// For the full copyright and license information, please view the LICENSE file
-// that was distributed with this source code.
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 
 // spell-checker:ignore memmem algo
 
@@ -178,7 +176,7 @@ impl Digest for CRC {
     }
 
     fn hash_update(&mut self, input: &[u8]) {
-        for &elt in input.iter() {
+        for &elt in input {
             self.update(elt);
         }
         self.size += input.len();
@@ -225,7 +223,7 @@ impl Digest for BSD {
     }
 
     fn hash_update(&mut self, input: &[u8]) {
-        for &byte in input.iter() {
+        for &byte in input {
             self.state = (self.state >> 1) + ((self.state & 1) << 15);
             self.state = self.state.wrapping_add(u16::from(byte));
         }
@@ -259,7 +257,7 @@ impl Digest for SYSV {
     }
 
     fn hash_update(&mut self, input: &[u8]) {
-        for &byte in input.iter() {
+        for &byte in input {
             self.state = self.state.wrapping_add(u32::from(byte));
         }
     }
@@ -486,22 +484,23 @@ mod tests {
     fn test_crlf_across_blocks() {
         use std::io::Write;
 
-        use crate::digest::Digest;
-        use crate::digest::DigestWriter;
+        use super::Digest;
+        use super::DigestWriter;
+        use super::Md5;
 
         // Writing "\r" in one call to `write()`, and then "\n" in another.
-        let mut digest = Box::new(md5::Md5::new()) as Box<dyn Digest>;
+        let mut digest = Box::new(Md5::new()) as Box<dyn Digest>;
         let mut writer_crlf = DigestWriter::new(&mut digest, false);
         writer_crlf.write_all(&[b'\r']).unwrap();
         writer_crlf.write_all(&[b'\n']).unwrap();
-        writer_crlf.hash_finalize();
+        writer_crlf.finalize();
         let result_crlf = digest.result_str();
 
         // We expect "\r\n" to be replaced with "\n" in text mode on Windows.
-        let mut digest = Box::new(md5::Md5::new()) as Box<dyn Digest>;
+        let mut digest = Box::new(Md5::new()) as Box<dyn Digest>;
         let mut writer_lf = DigestWriter::new(&mut digest, false);
         writer_lf.write_all(&[b'\n']).unwrap();
-        writer_lf.hash_finalize();
+        writer_lf.finalize();
         let result_lf = digest.result_str();
 
         assert_eq!(result_crlf, result_lf);

@@ -1,11 +1,7 @@
-//  * This file is part of the uutils coreutils package.
-//  *
-//  * (c) Morten Olsen Lysgaard <morten@lysgaard.no>
-//  * (c) Alexander Batischev <eual.jp@gmail.com>
-//  * (c) Thomas Queiroz <thomasqueirozb@gmail.com>
-//  *
-//  * For the full copyright and license information, please view the LICENSE
-//  * file that was distributed with this source code.
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 
 // spell-checker:ignore (ToDO) seekable seek'd tail'ing ringbuffer ringbuf unwatch Uncategorized filehandle Signum
 // spell-checker:ignore (libs) kqueue
@@ -35,7 +31,7 @@ use std::fs::File;
 use std::io::{self, stdin, stdout, BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use uucore::display::Quotable;
-use uucore::error::{get_exit_code, set_exit_code, FromIo, UError, UResult, USimpleError};
+use uucore::error::{get_exit_code, set_exit_code, FromIo, UResult, USimpleError};
 use uucore::{show, show_error};
 
 #[uucore::main]

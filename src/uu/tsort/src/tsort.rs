@@ -1,10 +1,7 @@
-//  * This file is part of the uutils coreutils package.
-//  *
-//  * (c) Ben Eggers <ben.eggers36@gmail.com>
-//  * (c) Akira Hayakawa <ruby.wktk@gmail.com>
-//  *
-//  * For the full copyright and license information, please view the LICENSE
-//  * file that was distributed with this source code.
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 use clap::{crate_version, Arg, Command};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
@@ -23,8 +20,6 @@ mod options {
 
 #[uucore::main]
 pub fn uumain(args: impl uucore::Args) -> UResult<()> {
-    let args = args.collect_lossy();
-
     let matches = uu_app().try_get_matches_from(args)?;
 
     let input = matches
@@ -37,7 +32,14 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
         stdin_buf = stdin();
         &mut stdin_buf as &mut dyn Read
     } else {
-        file_buf = File::open(Path::new(&input)).map_err_context(|| input.to_string())?;
+        let path = Path::new(&input);
+        if path.is_dir() {
+            return Err(USimpleError::new(
+                1,
+                format!("{}: read error: Is a directory", input),
+            ));
+        }
+        file_buf = File::open(path).map_err_context(|| input.to_string())?;
         &mut file_buf as &mut dyn Read
     });
 
@@ -157,6 +159,7 @@ impl Graph {
             self.result.push(n.clone());
 
             let n_out_edges = self.out_edges.get_mut(&n).unwrap();
+            #[allow(clippy::explicit_iter_loop)]
             for m in n_out_edges.iter() {
                 let m_in_edges = self.in_edges.get_mut(m).unwrap();
                 m_in_edges.remove(&n);

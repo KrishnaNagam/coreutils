@@ -1,3 +1,7 @@
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
 #![crate_name = "uu_csplit"]
 // spell-checker:ignore rustdoc
 #![allow(rustdoc::private_intra_doc_links)]
@@ -58,15 +62,9 @@ impl CsplitOptions {
             split_name: crash_if_err!(
                 1,
                 SplitName::new(
-                    matches
-                        .get_one::<String>(options::PREFIX)
-                        .map(|s| s.to_owned()),
-                    matches
-                        .get_one::<String>(options::SUFFIX_FORMAT)
-                        .map(|s| s.to_owned()),
-                    matches
-                        .get_one::<String>(options::DIGITS)
-                        .map(|s| s.to_owned())
+                    matches.get_one::<String>(options::PREFIX).cloned(),
+                    matches.get_one::<String>(options::SUFFIX_FORMAT).cloned(),
+                    matches.get_one::<String>(options::DIGITS).cloned()
                 )
             ),
             keep_files,
@@ -554,8 +552,6 @@ where
 
 #[uucore::main]
 pub fn uumain(args: impl uucore::Args) -> UResult<()> {
-    let args = args.collect_ignore();
-
     let matches = uu_app().try_get_matches_from(args)?;
 
     // get the file to split
@@ -660,6 +656,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::cognitive_complexity)]
     fn input_splitter() {
         let input = vec![
             Ok(String::from("aaa")),
@@ -732,6 +729,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cognitive_complexity)]
     fn input_splitter_interrupt_rewind() {
         let input = vec![
             Ok(String::from("aaa")),

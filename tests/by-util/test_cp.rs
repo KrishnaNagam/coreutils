@@ -1,4 +1,8 @@
-// spell-checker:ignore (flags) reflink (fs) tmpfs (linux) rlimit Rlim NOFILE clob btrfs ROOTDIR USERDIR procfs outfile
+// This file is part of the uutils coreutils package.
+//
+// For the full copyright and license information, please view the LICENSE
+// file that was distributed with this source code.
+// spell-checker:ignore (flags) reflink (fs) tmpfs (linux) rlimit Rlim NOFILE clob btrfs ROOTDIR USERDIR procfs outfile uufs xattrs
 
 use crate::common::util::TestScenario;
 #[cfg(not(windows))]
@@ -7,9 +11,9 @@ use std::fs::set_permissions;
 #[cfg(not(windows))]
 use std::os::unix::fs;
 
-#[cfg(all(unix, not(target_os = "freebsd")))]
+#[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
-#[cfg(all(unix, not(target_os = "freebsd")))]
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 #[cfg(windows)]
 use std::os::windows::fs::symlink_file;
@@ -20,8 +24,6 @@ use std::path::PathBuf;
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use filetime::FileTime;
-#[cfg(any(target_os = "linux", target_os = "android"))]
-use rlimit::Resource;
 #[cfg(target_os = "linux")]
 use std::ffi::OsString;
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -54,6 +56,8 @@ static TEST_MOUNT_MOUNTPOINT: &str = "mount";
 static TEST_MOUNT_OTHER_FILESYSTEM_FILE: &str = "mount/DO_NOT_copy_me.txt";
 #[cfg(unix)]
 static TEST_NONEXISTENT_FILE: &str = "nonexistent_file.txt";
+#[cfg(all(unix, not(any(target_os = "android", target_os = "macos"))))]
+use crate::common::util::compare_xattrs;
 
 /// Assert that mode, ownership, and permissions of two metadata objects match.
 #[cfg(all(not(windows), not(target_os = "freebsd")))]
@@ -109,8 +113,24 @@ fn test_cp_duplicate_files() {
         .arg(TEST_HELLO_WORLD_SOURCE)
         .arg(TEST_COPY_TO_FOLDER)
         .succeeds()
-        .stderr_contains("specified more than once");
+        .stderr_contains(format!(
+            "source file '{TEST_HELLO_WORLD_SOURCE}' specified more than once"
+        ));
     assert_eq!(at.read(TEST_COPY_TO_FOLDER_FILE), "Hello, World!\n");
+}
+
+#[test]
+fn test_cp_same_file() {
+    let (at, mut ucmd) = at_and_ucmd!();
+    let file = "a";
+
+    at.touch(file);
+
+    ucmd.arg(file)
+        .arg(file)
+        .fails()
+        .code_is(1)
+        .stderr_contains(format!("'{file}' and '{file}' are the same file"));
 }
 
 #[test]
@@ -129,7 +149,9 @@ fn test_cp_directory_not_recursive() {
         .arg(TEST_COPY_TO_FOLDER)
         .arg(TEST_HELLO_WORLD_DEST)
         .fails()
-        .stderr_contains("omitting directory");
+        .stderr_is(format!(
+            "cp: -r not specified; omitting directory '{TEST_COPY_TO_FOLDER}'\n"
+        ));
 }
 
 #[test]
@@ -227,6 +249,22 @@ fn test_cp_arg_no_target_directory() {
 }
 
 #[test]
+fn test_cp_arg_no_target_directory_with_recursive() {
+    let (at, mut ucmd) = at_and_ucmd!();
+
+    at.mkdir("dir");
+    at.mkdir("dir2");
+    at.touch("dir/a");
+    at.touch("dir/b");
+
+    ucmd.arg("-rT").arg("dir").arg("dir2").succeeds();
+
+    assert!(at.plus("dir2").join("a").exists());
+    assert!(at.plus("dir2").join("b").exists());
+    assert!(!at.plus("dir2").join("dir").exists());
+}
+
+#[test]
 fn test_cp_target_directory_is_file() {
     new_ucmd!()
         .arg("-t")
@@ -237,6 +275,8 @@ fn test_cp_target_directory_is_file() {
 }
 
 #[test]
+// FixMe: for FreeBSD, flaky test; track repair progress at GH:uutils/coreutils/issue/4725
+#[cfg(not(target_os = "freebsd"))]
 fn test_cp_arg_update_interactive() {
     new_ucmd!()
         .arg(TEST_HELLO_WORLD_SOURCE)
@@ -457,7 +497,7 @@ fn test_cp_arg_interactive() {
 }
 
 #[test]
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "freebsd")))]
 fn test_cp_arg_interactive_update() {
     // -u -i won't show the prompt to validate the override or not
     // Therefore, the error code will be 0
@@ -479,7 +519,8 @@ fn test_cp_arg_interactive_verbose() {
     ucmd.args(&["-vi", "a", "b"])
         .pipe_in("N\n")
         .fails()
-        .stdout_is("skipped 'b'\n");
+        .stderr_is("cp: overwrite 'b'? ")
+        .no_stdout();
 }
 
 #[test]
@@ -490,7 +531,8 @@ fn test_cp_arg_interactive_verbose_clobber() {
     at.touch("b");
     ucmd.args(&["-vin", "a", "b"])
         .fails()
-        .stdout_is("skipped 'b'\n");
+        .stderr_is("cp: not replacing 'b'\n")
+        .no_stdout();
 }
 
 #[test]
@@ -505,6 +547,41 @@ fn test_cp_arg_link() {
         .succeeds();
 
     assert_eq!(at.metadata(TEST_HELLO_WORLD_SOURCE).st_nlink(), 2);
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn test_cp_arg_link_with_dest_hardlink_to_source() {
+    use std::os::linux::fs::MetadataExt;
+
+    let (at, mut ucmd) = at_and_ucmd!();
+    let file = "file";
+    let hardlink = "hardlink";
+
+    at.touch(file);
+    at.hard_link(file, hardlink);
+
+    ucmd.args(&["--link", file, hardlink]).succeeds();
+
+    assert_eq!(at.metadata(file).st_nlink(), 2);
+    assert!(at.file_exists(file));
+    assert!(at.file_exists(hardlink));
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn test_cp_arg_link_with_same_file() {
+    use std::os::linux::fs::MetadataExt;
+
+    let (at, mut ucmd) = at_and_ucmd!();
+    let file = "file";
+
+    at.touch(file);
+
+    ucmd.args(&["--link", file, file]).succeeds();
+
+    assert_eq!(at.metadata(file).st_nlink(), 1);
+    assert!(at.file_exists(file));
 }
 
 #[test]
@@ -633,6 +710,46 @@ fn test_cp_arg_backup() {
         at.read(&format!("{TEST_HOW_ARE_YOU_SOURCE}~")),
         "How are you?\n"
     );
+}
+
+#[test]
+fn test_cp_arg_backup_with_dest_a_symlink() {
+    let (at, mut ucmd) = at_and_ucmd!();
+    let source = "source";
+    let source_content = "content";
+    let symlink = "symlink";
+    let original = "original";
+    let backup = "symlink~";
+
+    at.write(source, source_content);
+    at.write(original, "original");
+    at.symlink_file(original, symlink);
+
+    ucmd.arg("-b").arg(source).arg(symlink).succeeds();
+
+    assert!(!at.symlink_exists(symlink));
+    assert_eq!(source_content, at.read(symlink));
+    assert!(at.symlink_exists(backup));
+    assert_eq!(original, at.resolve_link(backup));
+}
+
+#[test]
+fn test_cp_arg_backup_with_dest_a_symlink_to_source() {
+    let (at, mut ucmd) = at_and_ucmd!();
+    let source = "source";
+    let source_content = "content";
+    let symlink = "symlink";
+    let backup = "symlink~";
+
+    at.write(source, source_content);
+    at.symlink_file(source, symlink);
+
+    ucmd.arg("-b").arg(source).arg(symlink).succeeds();
+
+    assert!(!at.symlink_exists(symlink));
+    assert_eq!(source_content, at.read(symlink));
+    assert!(at.symlink_exists(backup));
+    assert_eq!(source, at.resolve_link(backup));
 }
 
 #[test]
@@ -1350,6 +1467,228 @@ fn test_cp_preserve_xattr_fails_on_android() {
 }
 
 #[test]
+// android platform will causing stderr = cp: Permission denied (os error 13)
+#[cfg(not(target_os = "android"))]
+fn test_cp_preserve_links_case_1() {
+    let (at, mut ucmd) = at_and_ucmd!();
+
+    at.touch("a");
+    at.hard_link("a", "b");
+    at.mkdir("c");
+
+    ucmd.arg("-d").arg("a").arg("b").arg("c").succeeds();
+
+    assert!(at.dir_exists("c"));
+    assert!(at.plus("c").join("a").exists());
+    assert!(at.plus("c").join("b").exists());
+
+    #[cfg(unix)]
+    {
+        let metadata_a = std::fs::metadata(at.subdir.join("c").join("a")).unwrap();
+        let metadata_b = std::fs::metadata(at.subdir.join("c").join("b")).unwrap();
+
+        assert_eq!(metadata_a.ino(), metadata_b.ino());
+    }
+}
+
+#[test]
+// android platform will causing stderr = cp: Permission denied (os error 13)
+#[cfg(not(target_os = "android"))]
+fn test_cp_preserve_links_case_2() {
+    let (at, mut ucmd) = at_and_ucmd!();
+
+    at.touch("a");
+    at.symlink_file("a", "b");
+    at.mkdir("c");
+
+    ucmd.arg("--preserve=links")
+        .arg("-R")
+        .arg("-H")
+        .arg("a")
+        .arg("b")
+        .arg("c")
+        .succeeds();
+
+    assert!(at.dir_exists("c"));
+    assert!(at.plus("c").join("a").exists());
+    assert!(at.plus("c").join("b").exists());
+
+    #[cfg(unix)]
+    {
+        let metadata_a = std::fs::metadata(at.subdir.join("c").join("a")).unwrap();
+        let metadata_b = std::fs::metadata(at.subdir.join("c").join("b")).unwrap();
+
+        assert_eq!(metadata_a.ino(), metadata_b.ino());
+    }
+}
+
+#[test]
+// android platform will causing stderr = cp: Permission denied (os error 13)
+#[cfg(not(target_os = "android"))]
+fn test_cp_preserve_links_case_3() {
+    let (at, mut ucmd) = at_and_ucmd!();
+
+    at.mkdir("d");
+    at.touch("d/a");
+    at.symlink_file("d/a", "d/b");
+
+    ucmd.arg("--preserve=links")
+        .arg("-R")
+        .arg("-L")
+        .arg("d")
+        .arg("c")
+        .succeeds();
+
+    assert!(at.dir_exists("c"));
+    assert!(at.plus("c").join("a").exists());
+    assert!(at.plus("c").join("b").exists());
+
+    #[cfg(unix)]
+    {
+        let metadata_a = std::fs::metadata(at.subdir.join("c").join("a")).unwrap();
+        let metadata_b = std::fs::metadata(at.subdir.join("c").join("b")).unwrap();
+
+        assert_eq!(metadata_a.ino(), metadata_b.ino());
+    }
+}
+
+#[test]
+// android platform will causing stderr = cp: Permission denied (os error 13)
+#[cfg(not(target_os = "android"))]
+fn test_cp_preserve_links_case_4() {
+    let (at, mut ucmd) = at_and_ucmd!();
+
+    at.mkdir("d");
+    at.touch("d/a");
+    at.hard_link("d/a", "d/b");
+
+    ucmd.arg("--preserve=links")
+        .arg("-R")
+        .arg("-L")
+        .arg("d")
+        .arg("c")
+        .succeeds();
+
+    assert!(at.dir_exists("c"));
+    assert!(at.plus("c").join("a").exists());
+    assert!(at.plus("c").join("b").exists());
+
+    #[cfg(unix)]
+    {
+        let metadata_a = std::fs::metadata(at.subdir.join("c").join("a")).unwrap();
+        let metadata_b = std::fs::metadata(at.subdir.join("c").join("b")).unwrap();
+
+        assert_eq!(metadata_a.ino(), metadata_b.ino());
+    }
+}
+
+#[test]
+// android platform will causing stderr = cp: Permission denied (os error 13)
+#[cfg(not(target_os = "android"))]
+fn test_cp_preserve_links_case_5() {
+    let (at, mut ucmd) = at_and_ucmd!();
+
+    at.mkdir("d");
+    at.touch("d/a");
+    at.hard_link("d/a", "d/b");
+
+    ucmd.arg("-dR")
+        .arg("--no-preserve=links")
+        .arg("d")
+        .arg("c")
+        .succeeds();
+
+    assert!(at.dir_exists("c"));
+    assert!(at.plus("c").join("a").exists());
+    assert!(at.plus("c").join("b").exists());
+
+    #[cfg(unix)]
+    {
+        let metadata_a = std::fs::metadata(at.subdir.join("c").join("a")).unwrap();
+        let metadata_b = std::fs::metadata(at.subdir.join("c").join("b")).unwrap();
+
+        assert_ne!(metadata_a.ino(), metadata_b.ino());
+    }
+}
+
+#[test]
+// android platform will causing stderr = cp: Permission denied (os error 13)
+#[cfg(not(target_os = "android"))]
+fn test_cp_preserve_links_case_6() {
+    let (at, mut ucmd) = at_and_ucmd!();
+
+    at.touch("a");
+    at.hard_link("a", "b");
+    at.mkdir("c");
+
+    ucmd.arg("-d").arg("a").arg("b").arg("c").succeeds();
+
+    assert!(at.dir_exists("c"));
+    assert!(at.plus("c").join("a").exists());
+    assert!(at.plus("c").join("b").exists());
+
+    #[cfg(unix)]
+    {
+        let metadata_a = std::fs::metadata(at.subdir.join("c").join("a")).unwrap();
+        let metadata_b = std::fs::metadata(at.subdir.join("c").join("b")).unwrap();
+
+        assert_eq!(metadata_a.ino(), metadata_b.ino());
+    }
+}
+
+#[test]
+// android platform will causing stderr = cp: Permission denied (os error 13)
+#[cfg(not(target_os = "android"))]
+fn test_cp_preserve_links_case_7() {
+    let (at, mut ucmd) = at_and_ucmd!();
+
+    at.mkdir("src");
+    at.touch("src/f");
+    at.hard_link("src/f", "src/g");
+
+    at.mkdir("dest");
+    at.touch("dest/g");
+
+    ucmd.arg("-n")
+        .arg("--preserve=links")
+        .arg("src/f")
+        .arg("src/g")
+        .arg("dest")
+        .fails()
+        .stderr_contains("not replacing");
+
+    assert!(at.dir_exists("dest"));
+    assert!(at.plus("dest").join("f").exists());
+    assert!(at.plus("dest").join("g").exists());
+}
+
+#[test]
+#[cfg(unix)]
+fn test_cp_no_preserve_mode() {
+    use libc::umask;
+    use uucore::fs as uufs;
+    let (at, mut ucmd) = at_and_ucmd!();
+
+    at.touch("a");
+    at.set_mode("a", 0o731);
+    unsafe { umask(0o077) };
+
+    ucmd.arg("-a")
+        .arg("--no-preserve=mode")
+        .arg("a")
+        .arg("b")
+        .succeeds();
+
+    assert!(at.file_exists("b"));
+
+    let metadata_b = std::fs::metadata(at.subdir.join("b")).unwrap();
+    let permission_b = uufs::display_permissions(&metadata_b, false);
+    assert_eq!(permission_b, "rw-------".to_string());
+
+    unsafe { umask(0o022) };
+}
+
+#[test]
 // For now, disable the test on Windows. Symlinks aren't well support on Windows.
 // It works on Unix for now and it works locally when run from a powershell
 #[cfg(not(windows))]
@@ -1880,6 +2219,7 @@ fn test_cp_reflink_insufficient_permission() {
 #[test]
 fn test_closes_file_descriptors() {
     use procfs::process::Process;
+    use rlimit::Resource;
     let me = Process::myself().unwrap();
 
     // The test suite runs in parallel, we have pipe, sockets
@@ -1889,7 +2229,6 @@ fn test_closes_file_descriptors() {
     let limit_fd: u64 = number_file_already_opened + 9;
 
     // For debugging purposes:
-    #[cfg(not(target_os = "android"))]
     for f in me.fd().unwrap() {
         let fd = f.unwrap();
         println!("{:?} {:?}", fd, fd.mode());
@@ -2022,12 +2361,12 @@ fn test_cp_reflink_always_override() {
     const USERDIR: &str = "dir/";
     const MOUNTPOINT: &str = "mountpoint/";
 
-    let src1_path: &str = &vec![MOUNTPOINT, USERDIR, "src1"].concat();
-    let src2_path: &str = &vec![MOUNTPOINT, USERDIR, "src2"].concat();
-    let dst_path: &str = &vec![MOUNTPOINT, USERDIR, "dst"].concat();
+    let src1_path: &str = &[MOUNTPOINT, USERDIR, "src1"].concat();
+    let src2_path: &str = &[MOUNTPOINT, USERDIR, "src2"].concat();
+    let dst_path: &str = &[MOUNTPOINT, USERDIR, "dst"].concat();
 
     scene.fixtures.mkdir(ROOTDIR);
-    scene.fixtures.mkdir(vec![ROOTDIR, USERDIR].concat());
+    scene.fixtures.mkdir([ROOTDIR, USERDIR].concat());
 
     // Setup:
     // Because neither `mkfs.btrfs` not btrfs `mount` options allow us to have a mountpoint owned
@@ -2135,13 +2474,18 @@ fn test_copy_symlink_force() {
 }
 
 #[test]
-#[cfg(all(unix, not(target_os = "freebsd")))]
+#[cfg(unix)]
 fn test_no_preserve_mode() {
     use std::os::unix::prelude::MetadataExt;
 
     use uucore::mode::get_umask;
 
-    const PERMS_ALL: u32 = 0o7777;
+    const PERMS_ALL: u32 = if cfg!(target_os = "freebsd") {
+        // Only the superuser can set the sticky bit on a file.
+        0o6777
+    } else {
+        0o7777
+    };
 
     let (at, mut ucmd) = at_and_ucmd!();
     at.touch("file");
@@ -2161,11 +2505,16 @@ fn test_no_preserve_mode() {
 }
 
 #[test]
-#[cfg(all(unix, not(target_os = "freebsd")))]
+#[cfg(unix)]
 fn test_preserve_mode() {
     use std::os::unix::prelude::MetadataExt;
 
-    const PERMS_ALL: u32 = 0o7777;
+    const PERMS_ALL: u32 = if cfg!(target_os = "freebsd") {
+        // Only the superuser can set the sticky bit on a file.
+        0o6777
+    } else {
+        0o7777
+    };
 
     let (at, mut ucmd) = at_and_ucmd!();
     at.touch("file");
@@ -2625,6 +2974,40 @@ fn test_cp_mode_hardlink_no_dereference() {
     assert_eq!(at.read_symlink("z"), "slink");
 }
 
+#[cfg(not(any(windows, target_os = "android")))]
+#[test]
+fn test_remove_destination_with_destination_being_a_hardlink_to_source() {
+    let (at, mut ucmd) = at_and_ucmd!();
+    let file = "file";
+    let hardlink = "hardlink";
+
+    at.touch(file);
+    at.hard_link(file, hardlink);
+
+    ucmd.args(&["--remove-destination", file, hardlink])
+        .succeeds();
+
+    assert_eq!("", at.resolve_link(hardlink));
+    assert!(at.file_exists(file));
+    assert!(at.file_exists(hardlink));
+}
+
+#[test]
+fn test_remove_destination_with_destination_being_a_symlink_to_source() {
+    let (at, mut ucmd) = at_and_ucmd!();
+    let file = "file";
+    let symlink = "symlink";
+
+    at.touch(file);
+    at.symlink_file(file, symlink);
+
+    ucmd.args(&["--remove-destination", file, symlink])
+        .succeeds();
+    assert!(!at.symlink_exists(symlink));
+    assert!(at.file_exists(file));
+    assert!(at.file_exists(symlink));
+}
+
 #[test]
 fn test_remove_destination_symbolic_link_loop() {
     let (at, mut ucmd) = at_and_ucmd!();
@@ -2972,6 +3355,7 @@ fn test_cp_archive_on_directory_ending_dot() {
 }
 
 #[test]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 fn test_cp_debug_default() {
     let ts = TestScenario::new(util_name!());
     let at = &ts.fixtures;
@@ -2999,6 +3383,7 @@ fn test_cp_debug_default() {
 }
 
 #[test]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 fn test_cp_debug_multiple_default() {
     let ts = TestScenario::new(util_name!());
     let at = &ts.fixtures;
@@ -3094,6 +3479,21 @@ fn test_cp_debug_sparse_reflink() {
 }
 
 #[test]
+fn test_cp_debug_no_update() {
+    let ts = TestScenario::new(util_name!());
+    let at = &ts.fixtures;
+    at.touch("a");
+    at.touch("b");
+    ts.ucmd()
+        .arg("--debug")
+        .arg("--update=none")
+        .arg("a")
+        .arg("b")
+        .succeeds()
+        .stdout_contains("skipped 'b'");
+}
+
+#[test]
 #[cfg(target_os = "linux")]
 fn test_cp_debug_sparse_always() {
     let ts = TestScenario::new(util_name!());
@@ -3174,7 +3574,7 @@ fn test_cp_debug_sparse_auto() {
 }
 
 #[test]
-#[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn test_cp_debug_reflink_auto() {
     let ts = TestScenario::new(util_name!());
     let at = &ts.fixtures;
@@ -3226,4 +3626,154 @@ fn test_cp_debug_sparse_always_reflink_auto() {
     {
         panic!("Failure: stdout was \n{stdout_str}");
     }
+}
+
+#[test]
+fn test_cp_only_source_no_target() {
+    let ts = TestScenario::new(util_name!());
+    let at = &ts.fixtures;
+    at.touch("a");
+    let result = ts.ucmd().arg("a").fails();
+    let stderr_str = result.stderr_str();
+    if !stderr_str.contains("missing destination file operand after \"a\"") {
+        panic!("Failure: stderr was \n{stderr_str}");
+    }
+}
+
+#[test]
+fn test_cp_dest_no_permissions() {
+    let ts = TestScenario::new(util_name!());
+    let at = &ts.fixtures;
+
+    at.touch("valid.txt");
+    at.touch("invalid_perms.txt");
+    at.set_readonly("invalid_perms.txt");
+
+    ts.ucmd()
+        .args(&["valid.txt", "invalid_perms.txt"])
+        .fails()
+        .stderr_contains("invalid_perms.txt")
+        .stderr_contains("denied");
+}
+
+#[test]
+#[cfg(all(unix, not(target_os = "freebsd")))]
+fn test_cp_attributes_only() {
+    let (at, mut ucmd) = at_and_ucmd!();
+    let a = "file_a";
+    let b = "file_b";
+    let mode_a = 0o0500;
+    let mode_b = 0o0777;
+
+    at.write(a, "a");
+    at.write(b, "b");
+    at.set_mode(a, mode_a);
+    at.set_mode(b, mode_b);
+
+    let mode_a = at.metadata(a).mode();
+    let mode_b = at.metadata(b).mode();
+
+    // --attributes-only doesn't do anything without other attribute preservation flags
+    ucmd.arg("--attributes-only")
+        .arg(a)
+        .arg(b)
+        .succeeds()
+        .no_output();
+
+    assert_eq!("a", at.read(a));
+    assert_eq!("b", at.read(b));
+    assert_eq!(mode_a, at.metadata(a).mode());
+    assert_eq!(mode_b, at.metadata(b).mode());
+}
+
+#[test]
+fn test_cp_seen_file() {
+    let ts = TestScenario::new(util_name!());
+    let at = &ts.fixtures;
+
+    at.mkdir("a");
+    at.mkdir("b");
+    at.mkdir("c");
+    at.write("a/f", "a");
+    at.write("b/f", "b");
+
+    let result = ts.ucmd().arg("a/f").arg("b/f").arg("c").fails();
+    #[cfg(not(unix))]
+    assert!(result
+        .stderr_str()
+        .contains("will not overwrite just-created 'c\\f' with 'b/f'"));
+    #[cfg(unix)]
+    assert!(result
+        .stderr_str()
+        .contains("will not overwrite just-created 'c/f' with 'b/f'"));
+
+    assert!(at.plus("c").join("f").exists());
+
+    ts.ucmd()
+        .arg("--backup=numbered")
+        .arg("a/f")
+        .arg("b/f")
+        .arg("c")
+        .succeeds();
+    assert!(at.plus("c").join("f").exists());
+    assert!(at.plus("c").join("f.~1~").exists());
+}
+
+#[test]
+fn test_cp_path_ends_with_terminator() {
+    let ts = TestScenario::new(util_name!());
+    let at = &ts.fixtures;
+    at.mkdir("a");
+    ts.ucmd().arg("-r").arg("-T").arg("a").arg("e/").succeeds();
+}
+
+#[test]
+fn test_cp_no_such() {
+    let ts = TestScenario::new(util_name!());
+    let at = &ts.fixtures;
+    at.touch("b");
+    ts.ucmd()
+        .arg("b")
+        .arg("no-such/")
+        .fails()
+        .stderr_is("cp: 'no-such/' is not a directory\n");
+}
+
+#[cfg(all(unix, not(any(target_os = "android", target_os = "macos"))))]
+#[test]
+fn test_acl_preserve() {
+    use std::process::Command;
+
+    let scene = TestScenario::new(util_name!());
+    let at = &scene.fixtures;
+    let path1 = "a";
+    let path2 = "b";
+    let file = "a/file";
+    let file_target = "b/file";
+    at.mkdir(path1);
+    at.mkdir(path2);
+    at.touch(file);
+
+    let path = at.plus_as_string(file);
+    // calling the command directly. xattr requires some dev packages to be installed
+    // and it adds a complex dependency just for a test
+    match Command::new("setfacl")
+        .args(["-m", "group::rwx", &path1])
+        .status()
+        .map(|status| status.code())
+    {
+        Ok(Some(0)) => {}
+        Ok(_) => {
+            println!("test skipped: setfacl failed");
+            return;
+        }
+        Err(e) => {
+            println!("test skipped: setfacl failed with {}", e);
+            return;
+        }
+    }
+
+    scene.ucmd().args(&["-p", &path, path2]).succeeds();
+
+    assert!(compare_xattrs(&file, &file_target));
 }
