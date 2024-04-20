@@ -1,7 +1,7 @@
 # spell-checker:ignore datetime
 [package]
 name = "uu_date"
-version = "0.0.24"
+version = "0.0.26"
 authors = ["uutils developers"]
 license = "MIT"
 description = "date ~ (uutils) display or set the current time"
@@ -20,8 +20,8 @@ chrono = { workspace = true }
 clap = { workspace = true }
 uucore = { workspace = true }
 parse_datetime = { workspace = true }
-chrono-tz = "0.8.3"
-iana-time-zone = "0.1.57"
+chrono-tz = { workspace = true }
+iana-time-zone = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
